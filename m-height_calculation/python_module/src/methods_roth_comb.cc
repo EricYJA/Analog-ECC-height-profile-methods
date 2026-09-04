@@ -1,4 +1,5 @@
 #include "methods.hh"
+#include "utils.hh"
 
 #include <algorithm>
 #include <cmath>
@@ -14,14 +15,6 @@
 #endif
 
 namespace {
-
-constexpr double kHmTol = 1e-12;
-
-void validate_nonempty_matrix(const Eigen::MatrixXd& M, const char* name) {
-    if (M.rows() == 0 || M.cols() == 0) {
-        throw std::runtime_error(std::string(name) + " must be a non-empty 2D matrix.");
-    }
-}
 
 void validate_m_for_columns(int m, int n) {
     if (m < 0 || m > n - 1) {
@@ -125,11 +118,10 @@ Eigen::MatrixXd gather_columns(const Eigen::MatrixXd& M, const std::vector<int>&
     return out;
 }
 
-bool is_nonsingular(const Eigen::MatrixXd& M, double tol) {
+bool is_nonsingular(const Eigen::MatrixXd& M, double tol, double reference_scale) {
     if (M.rows() == 0 || M.rows() != M.cols()) return false;
-    Eigen::FullPivLU<Eigen::MatrixXd> lu(M);
-    lu.setThreshold(tol);
-    return lu.rank() == M.rows();
+    return m_height_utils::detail::numerical_rank(M, tol, reference_scale) ==
+        M.rows();
 }
 
 struct ComplementCandidateStats {
@@ -139,16 +131,15 @@ struct ComplementCandidateStats {
 };
 
 ComplementCandidateStats complement_candidate_stats(
-    const Eigen::VectorXd& complement_values,
-    double unit_tol = kHmTol)
+    const Eigen::VectorXd& complement_values)
 {
     ComplementCandidateStats stats;
     for (int idx = 0; idx < complement_values.size(); ++idx) {
         const double magnitude = std::abs(complement_values[idx]);
         stats.infinity_norm = std::max(stats.infinity_norm, magnitude);
-        if (magnitude > 1.0 + unit_tol) {
+        if (magnitude > 1.0) {
             ++stats.greater_than_one;
-        } else if (magnitude < 1.0 - unit_tol) {
+        } else if (magnitude < 1.0) {
             ++stats.less_than_one;
         }
     }
@@ -158,12 +149,11 @@ ComplementCandidateStats complement_candidate_stats(
 double roth_primal_complement_candidate_value(
     const Eigen::VectorXd& complement_values,
     int m,
-    int n,
-    double unit_tol = kHmTol)
+    int n)
 {
     validate_m_for_columns(m, n);
     const ComplementCandidateStats stats =
-        complement_candidate_stats(complement_values, unit_tol);
+        complement_candidate_stats(complement_values);
 
     // Roth Theorem 5, Eq. (15): u is admissible only when the
     // complement has at most m entries above 1 and at most n-m-1 below 1.
@@ -187,8 +177,7 @@ int validate_and_get_all_m_count_for_generator(const Eigen::MatrixXd& G) {
 void update_roth_primal_complement_all_max(
     const Eigen::VectorXd& complement_values,
     int n,
-    std::vector<double>& best,
-    double unit_tol = kHmTol)
+    std::vector<double>& best)
 {
     const int max_m = static_cast<int>(best.size());
     if (max_m == 0) return;
@@ -199,7 +188,7 @@ void update_roth_primal_complement_all_max(
     }
 
     const ComplementCandidateStats stats =
-        complement_candidate_stats(complement_values, unit_tol);
+        complement_candidate_stats(complement_values);
     for (int m = 1; m <= max_m; ++m) {
         if (stats.greater_than_one <= m && stats.less_than_one <= n - m - 1) {
             best[m - 1] = std::max(best[m - 1], stats.infinity_norm);
@@ -325,10 +314,12 @@ std::vector<std::vector<int>> collect_nonsingular_subsets_parallel(
 {
     const auto subsets = collect_subsets(static_cast<int>(M.cols()), subset_size);
     std::vector<char> keep(subsets.size(), 0);
+    const double reference_scale = m_height_utils::detail::matrix_scale(M);
 
 #pragma omp parallel for schedule(dynamic)
     for (int idx = 0; idx < static_cast<int>(subsets.size()); ++idx) {
-        keep[idx] = is_nonsingular(gather_columns(M, subsets[idx]), tol) ? 1 : 0;
+        keep[idx] =
+            is_nonsingular(gather_columns(M, subsets[idx]), tol, reference_scale) ? 1 : 0;
     }
 
     std::vector<std::vector<int>> good_subsets;
@@ -355,15 +346,21 @@ std::unordered_set<std::string> collect_nonsingular_subset_keys_parallel(
 }  // namespace
 
 double h_m_roth_primal_combinatorial(const Eigen::MatrixXd& G, int m, double tol) {
-    validate_nonempty_matrix(G, "G");
+    m_height_utils::validate_generator_matrix(G, tol);
     const int k = static_cast<int>(G.rows());
     const int n = static_cast<int>(G.cols());
     validate_m_for_columns(m, n);
     if (m == 0) return 1.0;
+    if (!m_height_utils::generator_minimum_distance_exceeds(G, m, tol)) {
+        return std::numeric_limits<double>::infinity();
+    }
 
+    const double reference_scale = m_height_utils::detail::matrix_scale(G);
     std::vector<std::vector<int>> good_I;
     for_each_subset(n, k, [&](const std::vector<int>& I) {
-        if (is_nonsingular(gather_columns(G, I), tol)) good_I.push_back(I);
+        if (is_nonsingular(gather_columns(G, I), tol, reference_scale)) {
+            good_I.push_back(I);
+        }
     });
 
     double best = -std::numeric_limits<double>::infinity();
@@ -386,7 +383,7 @@ double h_m_roth_primal_combinatorial(const Eigen::MatrixXd& G, int m, double tol
 }
 
 double h_m_roth_primal_combinatorial_omp(const Eigen::MatrixXd& G, int m, double tol) {
-    validate_nonempty_matrix(G, "G");
+    m_height_utils::validate_generator_matrix(G, tol);
     const int k = static_cast<int>(G.rows());
     const int n = static_cast<int>(G.cols());
     validate_m_for_columns(m, n);
@@ -395,6 +392,9 @@ double h_m_roth_primal_combinatorial_omp(const Eigen::MatrixXd& G, int m, double
 #ifndef _OPENMP
     return h_m_roth_primal_combinatorial(G, m, tol);
 #else
+    if (!m_height_utils::generator_minimum_distance_exceeds(G, m, tol)) {
+        return std::numeric_limits<double>::infinity();
+    }
     const std::vector<std::vector<int>> good_I = collect_nonsingular_subsets_parallel(G, k, tol);
 
     double best = -std::numeric_limits<double>::infinity();
@@ -423,21 +423,29 @@ double h_m_roth_primal_combinatorial_omp(const Eigen::MatrixXd& G, int m, double
 }
 
 std::vector<double> h_m_roth_primal_combinatorial_omp_all(const Eigen::MatrixXd& G, double tol) {
-    validate_nonempty_matrix(G, "G");
+    m_height_utils::validate_generator_matrix(G, tol);
     const int k = static_cast<int>(G.rows());
     const int n = static_cast<int>(G.cols());
     const int max_m = validate_and_get_all_m_count_for_generator(G);
     if (max_m == 0) return {};
 
+    const int minimum_distance = m_height_utils::generator_minimum_distance(G, tol);
+    const int finite_m_count = std::min(max_m, minimum_distance - 1);
+    std::vector<double> result(max_m, std::numeric_limits<double>::infinity());
+    if (finite_m_count == 0) return result;
+
 #ifndef _OPENMP
+    const double reference_scale = m_height_utils::detail::matrix_scale(G);
     std::vector<std::vector<int>> good_I;
     for_each_subset(static_cast<int>(G.cols()), k, [&](const std::vector<int>& I) {
-        if (is_nonsingular(gather_columns(G, I), tol)) good_I.push_back(I);
+        if (is_nonsingular(gather_columns(G, I), tol, reference_scale)) {
+            good_I.push_back(I);
+        }
     });
 
-    std::vector<double> best(max_m, -std::numeric_limits<double>::infinity());
+    std::vector<double> best(finite_m_count, -std::numeric_limits<double>::infinity());
     for (const auto& I : good_I) {
-        std::vector<double> best_for_I(max_m, -std::numeric_limits<double>::infinity());
+        std::vector<double> best_for_I(finite_m_count, -std::numeric_limits<double>::infinity());
         const Eigen::MatrixXd GI = gather_columns(G, I);
         const Eigen::MatrixXd GIc = gather_columns(G, complement_indices(n, I));
         const Eigen::PartialPivLU<Eigen::MatrixXd> lu(GI.transpose());
@@ -453,18 +461,19 @@ std::vector<double> h_m_roth_primal_combinatorial_omp_all(const Eigen::MatrixXd&
 
         merge_max_values(best, best_for_I);
     }
-    return best;
+    std::copy(best.begin(), best.end(), result.begin());
+    return result;
 #else
     const std::vector<std::vector<int>> good_I = collect_nonsingular_subsets_parallel(G, k, tol);
-    std::vector<double> best(max_m, -std::numeric_limits<double>::infinity());
+    std::vector<double> best(finite_m_count, -std::numeric_limits<double>::infinity());
 
 #pragma omp parallel
     {
-        std::vector<double> best_private(max_m, -std::numeric_limits<double>::infinity());
+        std::vector<double> best_private(finite_m_count, -std::numeric_limits<double>::infinity());
 
 #pragma omp for schedule(dynamic) nowait
         for (int idx = 0; idx < static_cast<int>(good_I.size()); ++idx) {
-            std::vector<double> best_for_I(max_m, -std::numeric_limits<double>::infinity());
+            std::vector<double> best_for_I(finite_m_count, -std::numeric_limits<double>::infinity());
             const Eigen::MatrixXd GI = gather_columns(G, good_I[idx]);
             const Eigen::MatrixXd GIc =
                 gather_columns(G, complement_indices(n, good_I[idx]));
@@ -486,13 +495,14 @@ std::vector<double> h_m_roth_primal_combinatorial_omp_all(const Eigen::MatrixXd&
         merge_max_values(best, best_private);
     }
 
-    return best;
+    std::copy(best.begin(), best.end(), result.begin());
+    return result;
 #endif
 }
 
 
 double h_m_roth_primal_combinatorial_pruning_omp(const Eigen::MatrixXd& G, int m, double tol) {
-    validate_nonempty_matrix(G, "G");
+    m_height_utils::validate_generator_matrix(G, tol);
     const int k = static_cast<int>(G.rows());
     const int n = static_cast<int>(G.cols());
     validate_m_for_columns(m, n);
@@ -503,6 +513,9 @@ double h_m_roth_primal_combinatorial_pruning_omp(const Eigen::MatrixXd& G, int m
     // but keep the fallback style consistent with the current file.
     return h_m_roth_primal_combinatorial(G, m, tol);
 #else
+    if (!m_height_utils::generator_minimum_distance_exceeds(G, m, tol)) {
+        return std::numeric_limits<double>::infinity();
+    }
     const std::vector<std::vector<int>> good_I = collect_nonsingular_subsets_parallel(G, k, tol);
 
     double best = -std::numeric_limits<double>::infinity();
@@ -555,14 +568,21 @@ double h_m_roth_primal_combinatorial_pruning_omp(const Eigen::MatrixXd& G, int m
 }
 
 double h_m_roth_dual_combinatorial_generator(const Eigen::MatrixXd& G, int m, double tol) {
-    validate_nonempty_matrix(G, "G");
+    m_height_utils::validate_generator_matrix(G, tol);
     const int k = static_cast<int>(G.rows());
     const int n = static_cast<int>(G.cols());
     validate_m_for_columns(m, n);
+    if (m == 0) return 1.0;
+    if (!m_height_utils::generator_minimum_distance_exceeds(G, m, tol)) {
+        return std::numeric_limits<double>::infinity();
+    }
 
+    const double reference_scale = m_height_utils::detail::matrix_scale(G);
     std::unordered_set<std::string> invertible;
     for_each_subset(n, k, [&](const std::vector<int>& I) {
-        if (is_nonsingular(gather_columns(G, I), tol)) invertible.insert(subset_key(I));
+        if (is_nonsingular(gather_columns(G, I), tol, reference_scale)) {
+            invertible.insert(subset_key(I));
+        }
     });
 
     double best_outer = -std::numeric_limits<double>::infinity();
@@ -575,7 +595,10 @@ double h_m_roth_dual_combinatorial_generator(const Eigen::MatrixXd& G, int m, do
             for_each_subset_from_pool(Sc, k, [&](const std::vector<int>& I) {
                 if (!invertible.count(subset_key(I))) return;
                 const Eigen::MatrixXd GI = gather_columns(G, I);
-                const Eigen::VectorXd coeffs = GI.colPivHouseholderQr().solve(G.col(i));
+                Eigen::FullPivLU<Eigen::MatrixXd> lu(GI);
+                m_height_utils::detail::set_numerical_rank_threshold(
+                    lu, tol, reference_scale);
+                const Eigen::VectorXd coeffs = lu.solve(G.col(i));
                 inner_best = std::min(inner_best, coeffs.lpNorm<1>());
                 found = true;
             });
@@ -590,14 +613,19 @@ double h_m_roth_dual_combinatorial_generator(const Eigen::MatrixXd& G, int m, do
 }
 
 double h_m_roth_dual_combinatorial_generator_omp(const Eigen::MatrixXd& G, int m, double tol) {
-    validate_nonempty_matrix(G, "G");
+    m_height_utils::validate_generator_matrix(G, tol);
     const int k = static_cast<int>(G.rows());
     const int n = static_cast<int>(G.cols());
     validate_m_for_columns(m, n);
+    if (m == 0) return 1.0;
 
 #ifndef _OPENMP
     return h_m_roth_dual_combinatorial_generator(G, m, tol);
 #else
+    if (!m_height_utils::generator_minimum_distance_exceeds(G, m, tol)) {
+        return std::numeric_limits<double>::infinity();
+    }
+    const double reference_scale = m_height_utils::detail::matrix_scale(G);
     const std::unordered_set<std::string> invertible =
         collect_nonsingular_subset_keys_parallel(G, k, tol);
     const std::vector<std::vector<int>> all_S = collect_subsets(n, m);
@@ -618,7 +646,10 @@ double h_m_roth_dual_combinatorial_generator_omp(const Eigen::MatrixXd& G, int m
             for_each_subset_from_pool(Sc, k, [&](const std::vector<int>& I) {
                 if (!invertible.count(subset_key(I))) return;
                 const Eigen::MatrixXd GI = gather_columns(G, I);
-                const Eigen::VectorXd coeffs = GI.colPivHouseholderQr().solve(G.col(i));
+                Eigen::FullPivLU<Eigen::MatrixXd> lu(GI);
+                m_height_utils::detail::set_numerical_rank_threshold(
+                    lu, tol, reference_scale);
+                const Eigen::VectorXd coeffs = lu.solve(G.col(i));
                 inner_best = std::min(inner_best, coeffs.lpNorm<1>());
                 found = true;
             });
@@ -642,17 +673,21 @@ double h_m_roth_dual_combinatorial_generator_omp(const Eigen::MatrixXd& G, int m
 }
 
 double h_m_roth_dual_combinatorial_parity(const Eigen::MatrixXd& H, int m, double tol) {
-    validate_nonempty_matrix(H, "H");
+    m_height_utils::validate_parity_check_matrix(H, tol);
     const int r = static_cast<int>(H.rows());
     const int n = static_cast<int>(H.cols());
     validate_m_for_columns(m, n);
-    if (m > r) {
-        throw std::invalid_argument("Parity-check form requires m <= r = n-k.");
+    if (m == 0) return 1.0;
+    if (!m_height_utils::parity_check_minimum_distance_exceeds(H, m, tol)) {
+        return std::numeric_limits<double>::infinity();
     }
 
+    const double reference_scale = m_height_utils::detail::matrix_scale(H);
     std::vector<std::vector<int>> good_J;
     for_each_subset(n, r, [&](const std::vector<int>& J) {
-        if (is_nonsingular(gather_columns(H, J), tol)) good_J.push_back(J);
+        if (is_nonsingular(gather_columns(H, J), tol, reference_scale)) {
+            good_J.push_back(J);
+        }
     });
 
     double best_outer = -std::numeric_limits<double>::infinity();
@@ -685,17 +720,18 @@ double h_m_roth_dual_combinatorial_parity(const Eigen::MatrixXd& H, int m, doubl
 }
 
 double h_m_roth_dual_combinatorial_parity_omp(const Eigen::MatrixXd& H, int m, double tol) {
-    validate_nonempty_matrix(H, "H");
+    m_height_utils::validate_parity_check_matrix(H, tol);
     const int r = static_cast<int>(H.rows());
     const int n = static_cast<int>(H.cols());
     validate_m_for_columns(m, n);
-    if (m > r) {
-        throw std::invalid_argument("Parity-check form requires m <= r = n-k.");
-    }
+    if (m == 0) return 1.0;
 
 #ifndef _OPENMP
     return h_m_roth_dual_combinatorial_parity(H, m, tol);
 #else
+    if (!m_height_utils::parity_check_minimum_distance_exceeds(H, m, tol)) {
+        return std::numeric_limits<double>::infinity();
+    }
     const std::vector<std::vector<int>> good_J = collect_nonsingular_subsets_parallel(H, r, tol);
     const std::vector<std::vector<int>> all_S = collect_subsets(n, m);
 

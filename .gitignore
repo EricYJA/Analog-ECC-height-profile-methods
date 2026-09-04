@@ -26,3 +26,5 @@ build.ninja
 *.dylib
 *.dll
 *.exe
+
+AGENTS.md

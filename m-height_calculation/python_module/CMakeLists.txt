@@ -53,7 +53,6 @@ set(SOLVE_M_HEIGHT_CPP_SOURCES
   src/methods_roth_LP.cc
   src/methods_roth_comb.cc
   src/methods_roth_mds_comb.cc
-  src/methods_new_UNTF_comb.cc
 )
 if (HAVE_CUDA_FULL_SWEEP)
   list(APPEND SOLVE_M_HEIGHT_CPP_SOURCES src/methods_roth_comb.cu)
@@ -116,7 +115,6 @@ if (BUILD_TEST_MAIN)
     src/methods_roth_LP.cc
     src/methods_roth_comb.cc
     src/methods_roth_mds_comb.cc
-    src/methods_new_UNTF_comb.cc
   )
   if (HAVE_CUDA_FULL_SWEEP)
     list(APPEND TEST_MAIN_SOURCES src/methods_roth_comb.cu)

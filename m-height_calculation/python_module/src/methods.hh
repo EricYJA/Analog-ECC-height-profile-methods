@@ -19,8 +19,6 @@ double h_m_roth_dual_lp(const Eigen::MatrixXd& G, int m);
 double h_m_roth_primal_combinatorial(const Eigen::MatrixXd& G, int m, double tol = 1e-10);
 double h_m_roth_mds_combinatorial(const Eigen::MatrixXd& G, int m, double tol = 1e-10);
 double h_m_roth_mds_combinatorial_omp(const Eigen::MatrixXd& G, int m, double tol = 1e-10);
-double h_m_roth_untf_combinatorial(const Eigen::MatrixXd& G, int m, double tol = 1e-10);
-double h_m_roth_untf_combinatorial_omp(const Eigen::MatrixXd& G, int m, double tol = 1e-10);
 double h_m_roth_primal_combinatorial_omp(const Eigen::MatrixXd& G, int m, double tol = 1e-10);
 std::vector<double> h_m_roth_primal_combinatorial_omp_all(const Eigen::MatrixXd& G, double tol = 1e-10);
 double h_m_roth_primal_combinatorial_pruning_omp(const Eigen::MatrixXd& G, int m, double tol = 1e-10);

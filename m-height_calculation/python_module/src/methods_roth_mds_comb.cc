@@ -1,4 +1,5 @@
 #include "methods.hh"
+#include "utils.hh"
 
 #include <algorithm>
 #include <functional>
@@ -11,17 +12,6 @@
 #endif
 
 namespace {
-
-void validate_nonempty_matrix(const Eigen::MatrixXd& G) {
-    if (G.rows() == 0 || G.cols() == 0) {
-        throw std::invalid_argument("G must be a non-empty 2D matrix.");
-    }
-    if (G.rows() > G.cols()) {
-        std::ostringstream oss;
-        oss << "G must satisfy rows <= cols, got rows=" << G.rows() << ", cols=" << G.cols();
-        throw std::invalid_argument(oss.str());
-    }
-}
 
 void validate_m_for_mds_case(int m, int n, int r) {
     if (m < 0 || m > n - 1) {
@@ -83,16 +73,10 @@ Eigen::MatrixXd gather_columns(const Eigen::MatrixXd& G, const std::vector<int>&
     return out;
 }
 
-bool is_nonsingular(const Eigen::MatrixXd& M, double tol) {
-    Eigen::FullPivLU<Eigen::MatrixXd> lu(M);
-    lu.setThreshold(tol);
-    return lu.rank() == M.rows();
-}
-
 }  // namespace
 
 double h_m_roth_mds_combinatorial(const Eigen::MatrixXd& G, int m, double tol) {
-    validate_nonempty_matrix(G);
+    m_height_utils::validate_generator_matrix(G, tol);
 
     const int k = static_cast<int>(G.rows());
     const int n = static_cast<int>(G.cols());
@@ -100,17 +84,18 @@ double h_m_roth_mds_combinatorial(const Eigen::MatrixXd& G, int m, double tol) {
     validate_m_for_mds_case(m, n, r);
 
     if (r == 0) return 1.0;
+    if (!m_height_utils::generator_minimum_distance_exceeds(G, m, tol)) {
+        throw std::invalid_argument(
+            "G must generate an MDS code: every k-column submatrix must be nonsingular.");
+    }
 
+    const double reference_scale = m_height_utils::detail::matrix_scale(G);
     double best = -std::numeric_limits<double>::infinity();
     for_each_subset(n, r, [&](const std::vector<int>& S) {
         const std::vector<int> Sc = complement_indices(n, S);
         const Eigen::MatrixXd GSc = gather_columns(G, Sc);
-        if (!is_nonsingular(GSc, tol)) {
-            throw std::invalid_argument("G must generate an MDS code: every k-column submatrix must be nonsingular.");
-        }
-
         Eigen::FullPivLU<Eigen::MatrixXd> lu(GSc);
-        lu.setThreshold(tol);
+        m_height_utils::detail::set_numerical_rank_threshold(lu, tol, reference_scale);
         for (int i : S) {
             const Eigen::VectorXd coeffs = lu.solve(G.col(i));
             best = std::max(best, coeffs.lpNorm<1>());
@@ -121,7 +106,7 @@ double h_m_roth_mds_combinatorial(const Eigen::MatrixXd& G, int m, double tol) {
 }
 
 double h_m_roth_mds_combinatorial_omp(const Eigen::MatrixXd& G, int m, double tol) {
-    validate_nonempty_matrix(G);
+    m_height_utils::validate_generator_matrix(G, tol);
 
     const int k = static_cast<int>(G.rows());
     const int n = static_cast<int>(G.cols());
@@ -133,22 +118,21 @@ double h_m_roth_mds_combinatorial_omp(const Eigen::MatrixXd& G, int m, double to
 #ifndef _OPENMP
     return h_m_roth_mds_combinatorial(G, m, tol);
 #else
+    if (!m_height_utils::generator_minimum_distance_exceeds(G, m, tol)) {
+        throw std::invalid_argument(
+            "G must generate an MDS code: every k-column submatrix must be nonsingular.");
+    }
     const std::vector<std::vector<int>> all_S = collect_subsets(n, r);
+    const double reference_scale = m_height_utils::detail::matrix_scale(G);
 
     double best = -std::numeric_limits<double>::infinity();
-    int found_singular_subset = 0;
-#pragma omp parallel for schedule(dynamic) reduction(max: best) reduction(|: found_singular_subset)
+#pragma omp parallel for schedule(dynamic) reduction(max: best)
     for (int idx = 0; idx < static_cast<int>(all_S.size()); ++idx) {
         const std::vector<int>& S = all_S[idx];
         const std::vector<int> Sc = complement_indices(n, S);
         const Eigen::MatrixXd GSc = gather_columns(G, Sc);
-        if (!is_nonsingular(GSc, tol)) {
-            found_singular_subset = 1;
-            continue;
-        }
-
         Eigen::FullPivLU<Eigen::MatrixXd> lu(GSc);
-        lu.setThreshold(tol);
+        m_height_utils::detail::set_numerical_rank_threshold(lu, tol, reference_scale);
 
         double best_for_S = -std::numeric_limits<double>::infinity();
         for (int i : S) {
@@ -158,9 +142,6 @@ double h_m_roth_mds_combinatorial_omp(const Eigen::MatrixXd& G, int m, double to
         best = std::max(best, best_for_S);
     }
 
-    if (found_singular_subset) {
-        throw std::invalid_argument("G must generate an MDS code: every k-column submatrix must be nonsingular.");
-    }
     return best;
 #endif
 }

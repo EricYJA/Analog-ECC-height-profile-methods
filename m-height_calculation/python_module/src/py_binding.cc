@@ -179,36 +179,6 @@ static double h_m_roth_mds_combinatorial_omp_np(
     return h_m_roth_mds_combinatorial_omp(G_cm, m, tol);
 }
 
-static double h_m_roth_untf_combinatorial_np(
-    py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
-    int m,
-    double tol)
-{
-    py::buffer_info info = G_in.request();
-    if (info.ndim != 2) throw std::runtime_error("G must be 2D");
-    const int k = (int)info.shape[0], n = (int)info.shape[1];
-
-    using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
-    Eigen::MatrixXd G_cm = G_rm;
-    return h_m_roth_untf_combinatorial(G_cm, m, tol);
-}
-
-static double h_m_roth_untf_combinatorial_omp_np(
-    py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
-    int m,
-    double tol)
-{
-    py::buffer_info info = G_in.request();
-    if (info.ndim != 2) throw std::runtime_error("G must be 2D");
-    const int k = (int)info.shape[0], n = (int)info.shape[1];
-
-    using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
-    Eigen::MatrixXd G_cm = G_rm;
-    return h_m_roth_untf_combinatorial_omp(G_cm, m, tol);
-}
-
 static double h_m_roth_primal_combinatorial_omp_np(
     py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
     int m,
@@ -351,12 +321,6 @@ PYBIND11_MODULE(solve_m_height_cpp, m) {
     m.def("h_m_roth_mds_combinatorial_omp", &h_m_roth_mds_combinatorial_omp_np,
           py::arg("G"), py::arg("m"), py::arg("tol") = 1e-10,
           "Exact h_r(C) for an MDS code via the generator-matrix characterization using OpenMP when available.");
-    m.def("h_m_roth_untf_combinatorial", &h_m_roth_untf_combinatorial_np,
-          py::arg("G"), py::arg("m"), py::arg("tol") = 1e-10,
-          "Exact h_m(C) for a UNTF generator matrix via the reduced primal combinatorial characterization.");
-    m.def("h_m_roth_untf_combinatorial_omp", &h_m_roth_untf_combinatorial_omp_np,
-          py::arg("G"), py::arg("m"), py::arg("tol") = 1e-10,
-          "Exact h_m(C) for a UNTF generator matrix via the reduced primal combinatorial characterization using OpenMP when available.");
     m.def("h_m_roth_primal_combinatorial_omp", &h_m_roth_primal_combinatorial_omp_np,
           py::arg("G"), py::arg("m"), py::arg("tol") = 1e-10,
           "Exact h_m(C) via primal combinatorial characterization using OpenMP when available.");
