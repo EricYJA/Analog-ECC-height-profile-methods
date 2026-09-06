@@ -10,7 +10,7 @@ namespace py = pybind11;
 
 // Thin wrappers converting NumPy -> Eigen and delegating to the backends
 static double
-h_m_jiang_lp_glpk_np(py::array_t<double, py::array::c_style | py::array::forcecast> G_in, int m)
+h_m_jiang_original_lp_glpk_np(py::array_t<double, py::array::c_style | py::array::forcecast> G_in, int m)
 {
     py::buffer_info info = G_in.request();
     if (info.ndim != 2) throw std::runtime_error("G must be 2D");
@@ -19,11 +19,11 @@ h_m_jiang_lp_glpk_np(py::array_t<double, py::array::c_style | py::array::forceca
     using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
     Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
     Eigen::MatrixXd G_cm = G_rm; // one copy
-    return h_m_jiang_lp_glpk(G_cm, m);
+    return h_m_jiang_original_lp_glpk(G_cm, m);
 }
 
 static double
-h_m_jiang_lp_glpk_early_quit_np(
+h_m_jiang_simplified_lp_glpk_early_quit_np(
     py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
     int m,
     double early_quit_threshold)
@@ -35,38 +35,12 @@ h_m_jiang_lp_glpk_early_quit_np(
     using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
     Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
     Eigen::MatrixXd G_cm = G_rm;
-    return h_m_jiang_lp_glpk_early_quit(G_cm, m, early_quit_threshold);
+    return h_m_jiang_simplified_lp_glpk_early_quit(G_cm, m, early_quit_threshold);
 }
 
 #ifdef HAVE_HIGHS
 static double
-h_m_jiang_lp_highs_np(py::array_t<double, py::array::c_style | py::array::forcecast> G_in, int m)
-{
-    py::buffer_info info = G_in.request();
-    if (info.ndim != 2) throw std::runtime_error("G must be 2D");
-    const int k = (int)info.shape[0], n = (int)info.shape[1];
-
-    using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
-    Eigen::MatrixXd G_cm = G_rm; // one copy
-    return h_m_jiang_lp_highs(G_cm, m);
-}
-
-static double
-h_m_jiang_lp_highs_more_constraint_np(py::array_t<double, py::array::c_style | py::array::forcecast> G_in, int m)
-{
-    py::buffer_info info = G_in.request();
-    if (info.ndim != 2) throw std::runtime_error("G must be 2D");
-    const int k = (int)info.shape[0], n = (int)info.shape[1];
-
-    using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
-    Eigen::MatrixXd G_cm = G_rm;
-    return h_m_jiang_lp_highs_more_constraint(G_cm, m);
-}
-
-static double
-h_m_jiang_lp_highs_early_quit_np(
+h_m_jiang_simplified_lp_highs_early_quit_np(
     py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
     int m,
     double early_quit_threshold)
@@ -78,11 +52,11 @@ h_m_jiang_lp_highs_early_quit_np(
     using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
     Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
     Eigen::MatrixXd G_cm = G_rm;
-    return h_m_jiang_lp_highs_early_quit(G_cm, m, early_quit_threshold);
+    return h_m_jiang_simplified_lp_highs_early_quit(G_cm, m, early_quit_threshold);
 }
 
 static double
-h_m_jiang_original_highs_np(py::array_t<double, py::array::c_style | py::array::forcecast> G_in, int m)
+h_m_jiang_original_lp_highs_np(py::array_t<double, py::array::c_style | py::array::forcecast> G_in, int m)
 {
     py::buffer_info info = G_in.request();
     if (info.ndim != 2) throw std::runtime_error("G must be 2D");
@@ -91,7 +65,7 @@ h_m_jiang_original_highs_np(py::array_t<double, py::array::c_style | py::array::
     using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
     Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
     Eigen::MatrixXd G_cm = G_rm;
-    return h_m_jiang_original_highs(G_cm, m);
+    return h_m_jiang_original_lp_highs(G_cm, m);
 }
 #endif // HAVE_HIGHS
 
@@ -287,19 +261,19 @@ PYBIND11_MODULE(solve_m_height_cpp, m) {
     py::module_::import("numpy");
     m.doc() = "m-height solvers (GLPK or HiGHS backend) with OpenMP";
 
-    m.def("h_m_jiang_lp_glpk",  &h_m_jiang_lp_glpk_np,
-          "Solve m-height using GLPK backend");
-    m.def("h_m_jiang_lp_glpk_early_quit",  &h_m_jiang_lp_glpk_early_quit_np,
-          "Solve m-height using GLPK backend with a threshold-based early quit");
+    m.def("h_m_jiang_original_lp_glpk", &h_m_jiang_original_lp_glpk_np,
+          py::arg("G"), py::arg("m"),
+          "Solve m-height using Jiang original LP formulation with GLPK backend.");
+    m.def("h_m_jiang_simplified_lp_glpk_early_quit",  &h_m_jiang_simplified_lp_glpk_early_quit_np,
+          py::arg("G"), py::arg("m"), py::arg("early_quit_threshold"),
+          "Simplified Jiang LP with GLPK; returns min(h_m, threshold). Use infinity for a full sweep.");
 
 #ifdef HAVE_HIGHS
-    m.def("h_m_jiang_lp_highs", &h_m_jiang_lp_highs_np,
-          "Solve m-height using HiGHS backend");
-    m.def("h_m_jiang_lp_highs_more_constraint", &h_m_jiang_lp_highs_more_constraint_np,
-          "Solve m-height using HiGHS backend with additional X lower-bound constraints");
-    m.def("h_m_jiang_lp_highs_early_quit", &h_m_jiang_lp_highs_early_quit_np,
-          "Solve m-height using HiGHS backend with a threshold-based early quit");
-    m.def("h_m_jiang_original_highs", &h_m_jiang_original_highs_np,
+    m.def("h_m_jiang_simplified_lp_highs_early_quit", &h_m_jiang_simplified_lp_highs_early_quit_np,
+          py::arg("G"), py::arg("m"), py::arg("early_quit_threshold"),
+          "Simplified Jiang LP with HiGHS; returns min(h_m, threshold). Use infinity for a full sweep.");
+    m.def("h_m_jiang_original_lp_highs", &h_m_jiang_original_lp_highs_np,
+          py::arg("G"), py::arg("m"),
           "Solve m-height using Jiang original LP formulation with HiGHS backend");
 #endif // HAVE_HIGHS
 

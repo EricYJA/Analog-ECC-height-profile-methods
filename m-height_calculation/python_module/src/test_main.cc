@@ -1,6 +1,7 @@
 #include <Eigen/Dense>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -61,10 +62,11 @@ int main() {
         throw std::runtime_error(std::string(name) + " must reject the invalid input.");
     };
 
-    check_close("h_m_jiang_lp_glpk", h_m_jiang_lp_glpk(G, m));
+    check_close("h_m_jiang_original_lp_glpk", h_m_jiang_original_lp_glpk(G, m));
+    check_close("h_m_jiang_simplified_lp_glpk_early_quit", h_m_jiang_simplified_lp_glpk_early_quit(G, m, std::numeric_limits<double>::infinity()));
 #ifdef HAVE_HIGHS
-    check_close("h_m_jiang_lp_highs", h_m_jiang_lp_highs(G, m));
-    check_close("h_m_jiang_original_highs", h_m_jiang_original_highs(G, m));
+    check_close("h_m_jiang_simplified_lp_highs_early_quit", h_m_jiang_simplified_lp_highs_early_quit(G, m, std::numeric_limits<double>::infinity()));
+    check_close("h_m_jiang_original_lp_highs", h_m_jiang_original_lp_highs(G, m));
 #endif
 
     check_close("h_m_roth_primal_lp", h_m_roth_primal_lp(G, m));
@@ -343,15 +345,15 @@ int main() {
         near_singular_ref);
 
 #ifdef HAVE_HIGHS
-    const double jiang_highs_mds_value_4_2 = h_m_jiang_lp_highs(G_mds_4_2, m_mds_4_2);
-    const double jiang_original_highs_mds_value_4_2 = h_m_jiang_original_highs(G_mds_4_2, m_mds_4_2);
-    std::cout << "h_m_jiang_lp_highs([4,2] MDS) = " << jiang_highs_mds_value_4_2 << "\n";
-    std::cout << "h_m_jiang_original_highs([4,2] MDS) = " << jiang_original_highs_mds_value_4_2 << "\n";
+    const double jiang_highs_mds_value_4_2 = h_m_jiang_simplified_lp_highs_early_quit(G_mds_4_2, m_mds_4_2, std::numeric_limits<double>::infinity());
+    const double jiang_original_highs_mds_value_4_2 = h_m_jiang_original_lp_highs(G_mds_4_2, m_mds_4_2);
+    std::cout << "h_m_jiang_simplified_lp_highs_early_quit([4,2] MDS) = " << jiang_highs_mds_value_4_2 << "\n";
+    std::cout << "h_m_jiang_original_lp_highs([4,2] MDS) = " << jiang_original_highs_mds_value_4_2 << "\n";
     if (std::abs(jiang_highs_mds_value_4_2 - ref_mds_4_2) > tol) {
-        throw std::runtime_error("h_m_jiang_lp_highs disagrees with the exact primal combinatorial solver on an MDS case.");
+        throw std::runtime_error("h_m_jiang_simplified_lp_highs_early_quit disagrees with the exact primal combinatorial solver on an MDS case.");
     }
     if (std::abs(jiang_original_highs_mds_value_4_2 - ref_mds_4_2) > tol) {
-        throw std::runtime_error("h_m_jiang_original_highs disagrees with the exact primal combinatorial solver on an MDS case.");
+        throw std::runtime_error("h_m_jiang_original_lp_highs disagrees with the exact primal combinatorial solver on an MDS case.");
     }
 #endif
 

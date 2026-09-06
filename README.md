@@ -21,12 +21,27 @@ Example:
 
 ```python
 import numpy as np
-from solve_m_height_cpp import h_m_jiang_lp_glpk
+from solve_m_height_cpp import h_m_jiang_simplified_lp_glpk_early_quit
 
 G = np.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0]])
-h_m = h_m_jiang_lp_glpk(G, 1)
+h_m = h_m_jiang_simplified_lp_glpk_early_quit(G, 1, float("inf"))
 print(h_m)
 ```
+
+## Jiang LP API
+
+- `h_m_jiang_simplified_lp_glpk_early_quit(G, m, early_quit_threshold)`
+- `h_m_jiang_simplified_lp_highs_early_quit(G, m, early_quit_threshold)`
+- `h_m_jiang_original_lp_glpk(G, m)`
+- `h_m_jiang_original_lp_highs(G, m)`
+
+The simplified methods cap the result at the supplied threshold. Pass
+`float("inf")` to compute the full height. Both original methods use the same
+enumeration and constraints and assume no zero column in `G`.
+HiGHS methods are exposed only when HiGHS support is built.
+
+These names replace the previous Jiang API. The ordinary simplified methods
+and additional-constraint variant have been removed.
 
 ## References
 

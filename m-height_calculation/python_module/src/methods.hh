@@ -3,14 +3,13 @@
 #include <Eigen/Dense>
 #include <vector>
 
-double h_m_jiang_lp_glpk(const Eigen::MatrixXd& G, int m);
-double h_m_jiang_lp_glpk_early_quit(const Eigen::MatrixXd& G, int m, double early_quit_threshold);
+double h_m_jiang_simplified_lp_glpk_early_quit(const Eigen::MatrixXd& G, int m, double early_quit_threshold);
+
+double h_m_jiang_original_lp_glpk(const Eigen::MatrixXd& G, int m);
 
 #ifdef HAVE_HIGHS
-double h_m_jiang_lp_highs(const Eigen::MatrixXd& G, int m);
-double h_m_jiang_lp_highs_more_constraint(const Eigen::MatrixXd& G, int m);
-double h_m_jiang_lp_highs_early_quit(const Eigen::MatrixXd& G, int m, double early_quit_threshold);
-double h_m_jiang_original_highs(const Eigen::MatrixXd& G, int m);
+double h_m_jiang_simplified_lp_highs_early_quit(const Eigen::MatrixXd& G, int m, double early_quit_threshold);
+double h_m_jiang_original_lp_highs(const Eigen::MatrixXd& G, int m);
 #endif
 
 double h_m_roth_primal_lp(const Eigen::MatrixXd& G, int m);
