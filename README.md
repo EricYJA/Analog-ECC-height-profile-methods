@@ -6,17 +6,29 @@ One package provides a NumPy/SciPy implementation by default and optional native
 
 ## Install
 
-Requires Python 3.10 or later, NumPy 1.23 or later, and SciPy 1.9 or later. From a checkout:
+Requires Python 3.10 or later. Pip installs NumPy >=1.23 and SciPy >=1.9 automatically. With Python and Git installed, start from a fresh checkout:
+
+```bash
+git clone https://github.com/EricYJA/Analog-ECC-height-profile-methods.git
+cd Analog-ECC-height-profile-methods
+python -m venv .venv
+```
+
+If your Python command is `python3` or `py`, use it to create the environment. Activate it using the command for your shell:
+
+| Platform / shell | Activation command |
+| --- | --- |
+| Linux or macOS / Bash or Zsh | `source .venv/bin/activate` |
+| Windows / PowerShell | `.\.venv\Scripts\Activate.ps1` |
+| Windows / Command Prompt | `.venv\Scripts\activate.bat` |
+
+Then install into the active environment:
 
 ```bash
 python -m pip install .
 ```
 
-After the package is published to PyPI:
-
-```bash
-python -m pip install analog-ecc-heights
-```
+An existing Python environment also works. See [environment setup](docs/installation.md#choose-a-python-environment) for details and the optional Conda workflow.
 
 The default installation does not invoke CMake or require a compiler, Eigen, GLPK, or a separately installed HiGHS library. Native support is an optional source build of this same distribution; see [installation](docs/installation.md).
 
@@ -58,12 +70,8 @@ An unavailable backend raises an installation error. Unsupported combinations ra
 ## Documentation and examples
 
 - [Installation and native builds](docs/installation.md)
-- [API signatures, matrix restrictions, and return values](docs/api.md)
-- [Backend behavior, numerical tolerances, and threading](docs/backends.md)
-- [Development, tests, and release preparation](docs/development.md)
+- [API, backend selection, and numerical behavior](docs/api.md)
 - Runnable examples: [basic usage](examples/basic_usage.py), [height profiles](examples/height_profile.py), and [backend comparison](examples/compare_backends.py)
-
-The public API is in `src/analog_ecc_heights/`. Its `py_backend/` and `cpp_backend/` directories implement the same mathematical methods. The C++ computational bodies are preserved under `cpp_backend/src/`, with separate `_comb`, `_glpk`, and `_highs` extensions and bindings. Native-enabled installations retain `import solve_m_height_cpp` for existing callers, within the same distribution.
 
 ## References
 

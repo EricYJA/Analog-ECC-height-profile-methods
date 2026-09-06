@@ -1,36 +1,70 @@
 # Installation
 
-`analog-ecc-heights` is one distribution with one version and the import name `analog_ecc_heights`. It supports a default Python installation and three independently optional native extensions. Select native support while installing; select an installed implementation with the API's `backend=` argument.
+`analog-ecc-heights` provides a Python backend by default and optional C++ backends. Import it as `analog_ecc_heights`. Install the backends you need, then select one with the API's [`backend=` argument](api.md#backend-availability-and-threads).
+
+## Get the source
+
+Install Python >=3.10 and Git, then clone the repository into a directory of your choice:
+
+```bash
+git clone https://github.com/EricYJA/Analog-ECC-height-profile-methods.git
+cd Analog-ECC-height-profile-methods
+```
+
+If you already have a checkout or an extracted source distribution, open a terminal in its root directory, alongside `pyproject.toml`. All source-install commands below run there.
+
+## Choose a Python environment
+
+Use an existing environment or create one with Python's built-in `venv`:
+
+```bash
+python -m venv .venv
+```
+
+Use `python3` or `py` instead if that is how you invoke Python >=3.10 on your system. Activate the environment with the command for your shell:
+
+| Platform / shell | Activation command |
+| --- | --- |
+| Linux or macOS / Bash or Zsh | `source .venv/bin/activate` |
+| Windows / PowerShell | `.\.venv\Scripts\Activate.ps1` |
+| Windows / Command Prompt | `.venv\Scripts\activate.bat` |
+
+After activation, `python` selects the environment's interpreter. If PowerShell blocks activation, use `.venv\Scripts\python.exe` in place of `python` in subsequent commands. See the [Python virtual environment documentation](https://docs.python.org/3/library/venv.html) for other shells and activation details.
+
+### Optional Conda environment
+
+If you use Conda, create and activate an environment instead of creating a `venv`:
+
+```bash
+conda create --name ecc-heights "python>=3.10" pip
+conda activate ecc-heights
+```
+
+`ecc-heights` is an example name; choose any name or activate an existing environment. If activation is unavailable, initialize your shell with `conda init bash` or `conda init powershell`, as appropriate, and reopen the terminal. See [Conda shell initialization](https://docs.conda.io/projects/conda/en/stable/commands/init.html). No particular Conda installation path is required.
 
 ## Default Python installation
 
-Requires Python >=3.10, NumPy >=1.23, and SciPy >=1.9. From this repository's root:
+With your chosen environment active, install from the source root:
 
 ```bash
 python -m pip install .
 ```
 
-Once published, install the same package from PyPI:
-
-```bash
-python -m pip install analog-ecc-heights
-```
-
-Both commands default to the Python backend. The package's Python wheel contains no compiled extension, and the default source build has `wheel.cmake=false`: it does not invoke CMake or require a C++ compiler or system solver libraries. Source builds install their Python build tools in pip's isolated build environment.
+Pip installs NumPy >=1.23 and SciPy >=1.9 as runtime dependencies. This installs the Python backend without requiring a C++ compiler, CMake, Eigen, or system solver libraries.
 
 SciPy supplies its own LP implementation using HiGHS. A separate HiGHS installation and the `highspy` package are unnecessary for this backend.
 
 ## Native requirements
 
-Every native build needs a C++17 compiler, CMake >=3.18, Python development headers, and Eigen headers. Pip installs scikit-build-core and pybind11 as build dependencies.
+Installing a native backend from source needs a C++17 compiler, CMake >=3.18, Python development headers, and Eigen headers. Pip installs the Python build tools automatically.
 
-| Extension | API backend | Additional requirements |
-| --- | --- | --- |
-| `_comb` | `cpp` | OpenMP |
-| `_glpk` | `cpp-glpk` | System GLPK development headers and library |
-| `_highs` | `cpp-highs` | System HiGHS development headers and library; OpenMP |
+| API backend | Additional requirements |
+| --- | --- |
+| `cpp` | OpenMP |
+| `cpp-glpk` | System GLPK development headers and library |
+| `cpp-highs` | System HiGHS development headers and library; OpenMP |
 
-Each extension links only its own dependencies. Eigen is header-only and needed at build time. Solver libraries and compiler/OpenMP runtimes must remain available after installation. Installing only a solver executable or Python wrapper does not provide the development files required here.
+Each backend requires only its own dependencies. Eigen is header-only and needed at build time. Solver libraries and compiler/OpenMP runtimes must remain available after installation. Installing only a solver executable or Python wrapper does not provide the development files required here.
 
 OpenMP is mandatory for combinatorial and HiGHS builds: configuration fails if it cannot be found. GLPK-only and Python-only installations do not require OpenMP. Passing `num_threads=1` still selects sequential execution in a parallel-capable extension.
 
@@ -42,11 +76,11 @@ sudo apt-get install libeigen3-dev cmake ninja-build g++ python3-dev
 sudo apt-get install libglpk-dev
 ```
 
-For HiGHS, install its C++ development library, headers, and preferably its CMake package configuration; see the [HiGHS installation guide](https://ergo-code.github.io/HiGHS/dev/installation/). CI builds HiGHS 1.11.0 from source. The `highspy` Python package alone is not the supported dependency. Compilers such as Apple Clang may require a separately installed OpenMP runtime and explicit search paths.
+For HiGHS, install its C++ development library, headers, and preferably its CMake package configuration; see the [HiGHS installation guide](https://ergo-code.github.io/HiGHS/dev/installation/). The `highspy` Python package alone is not the supported dependency. Compilers such as Apple Clang may require a separately installed OpenMP runtime and explicit search paths.
 
-## Build native support from this checkout
+## Install optional native backends
 
-Run from the repository root after installing the dependencies:
+Run from the source root in your active Python environment after installing the dependencies. Choose one configuration below. Multiline commands use Bash syntax; in PowerShell or Command Prompt, put each command on one line and omit the trailing `\` characters.
 
 ```bash
 # Combinatorial only (the default native configuration)
@@ -69,27 +103,25 @@ All variants include the default Python implementation. Build options default to
 
 To replace an existing installation of the same version, add `--force-reinstall --no-deps --no-cache-dir` to the chosen command. `--no-deps` assumes NumPy and SciPy are already installed. Native features are selected for the entire installation: rebuilding replaces the previous selection rather than adding to it. Reinstalling with `-Cwheel.cmake=false` returns to Python-only support.
 
-## Build native support from a published release
-
-After publication, force a source build of this package to enable native support. For example, to install all three extensions:
-
-```bash
-python -m pip install "numpy>=1.23" "scipy>=1.9"
-python -m pip install analog-ecc-heights --force-reinstall --no-deps --no-cache-dir \
-  --no-binary=analog-ecc-heights -Cwheel.cmake=true \
-  -Ccmake.define.USE_GLPK=ON -Ccmake.define.USE_HIGHS=ON
-```
-
-Use the same build options as above for other combinations. `--no-cache-dir` avoids reusing a wheel built with different options. Normal upgrades install the default wheel unless a source build is requested again.
-
 ## Nonstandard library locations
 
-Point CMake at an installation prefix when dependencies are installed outside standard search locations:
+Only set additional search paths when CMake cannot find dependencies in standard locations. Replace the example prefix below with the directory containing your dependency's `include` and `lib` directories.
+
+In Bash:
 
 ```bash
-CMAKE_PREFIX_PATH=/path/to/native/prefix \
+CMAKE_PREFIX_PATH="/path/to/native/prefix" \
   python -m pip install . -Cwheel.cmake=true -Ccmake.define.USE_HIGHS=ON
 ```
+
+In PowerShell:
+
+```powershell
+$env:CMAKE_PREFIX_PATH = "C:/path/to/native/prefix"
+python -m pip install . -Cwheel.cmake=true -Ccmake.define.USE_HIGHS=ON
+```
+
+For dependencies installed in an active Conda environment, its prefix is available as `$CONDA_PREFIX` in Bash or `$env:CONDA_PREFIX` in PowerShell. These examples specify one prefix; retain any other search paths your build needs.
 
 Use the `CMAKE_PREFIX_PATH` environment variable here. Passing `-Ccmake.define.CMAKE_PREFIX_PATH=...` replaces the paths that scikit-build-core supplies for isolated build dependencies such as pybind11.
 
@@ -103,7 +135,7 @@ The CMake search also accepts these explicit settings:
 | `cmake.define.HIGHS_INCLUDE_ROOT` | Include root containing `highs/Highs.h` |
 | `cmake.define.HIGHS_LIBRARY` | Full path to the HiGHS library |
 
-A locally compiled wheel links to the installed native libraries; it is not a portable, bundled native release. Keep those libraries available after installation. If import fails, the raised error includes the original loader message and suggested build flags. Native Linux builds are covered by CI; other native toolchains may need explicit dependency and compiler paths.
+Keep native libraries and their runtimes available after installation. If a backend cannot be imported, the error includes the original loader message and suggested installation flags. Check that its libraries are installed and discoverable by your operating system.
 
 ## Migrate an older native installation
 

@@ -2,7 +2,7 @@
 
 Import public functions from `analog_ecc_heights`. The matrix and height index can be positional; all configuration options are keyword-only.
 
-A generator matrix `G` has shape `(k, n)` and generates codewords `u @ G`. A parity-check matrix `H` has shape `(r, n)` and describes codewords satisfying `H @ c = 0`. Matrix inputs must be real, finite, two-dimensional arrays or convertible array-like values. They are converted to float64 as needed; caller data is not modified.
+A generator matrix `G` has shape `(k, n)` and generates codewords `u @ G`. A parity-check matrix `H` has shape `(r, n)` and describes codewords satisfying `H @ c = 0`. Matrix inputs must be real, finite, two-dimensional arrays or convertible array-like values. They are converted to float64 as needed; caller data is not modified. Contiguous, strided, and read-only arrays are supported.
 
 ## Linear-programming methods
 
@@ -77,7 +77,7 @@ h_m_roth_mds_combinatorial_parity(
 
 All six accept `backend="python"` or `"cpp"`. No LP solver name is selected for combinatorial calls.
 
-Generator matrices must have `1 <= k <= n` and full row rank under `tol`. Parity-check matrices must have `0 <= r < n`, at least one column, and full row rank under `tol`; a `(0, n)` parity-check matrix is allowed. `tol` must be finite and nonnegative. It controls complete-pivot LU rank decisions using the parent matrix's scale; see [numerical behavior](backends.md#numerical-behavior).
+Generator matrices must have `1 <= k <= n` and full row rank under `tol`. Parity-check matrices must have `0 <= r < n`, at least one column, and full row rank under `tol`; a `(0, n)` parity-check matrix is allowed. `tol` must be finite and nonnegative. It controls complete-pivot LU rank decisions using the parent matrix's scale; see [numerical behavior](#numerical-behavior).
 
 Scalar indices satisfy `0 <= m < n`. General combinatorial methods return `1.0` at `m=0`, a finite height when supported by the code's minimum distance, or positive infinity. Pruning computes the same scalar quantity as the primal method while eliminating candidates using bounds.
 
@@ -101,15 +101,30 @@ print(h_m_roth_primal_combinatorial(G, 2))  # 4.0
 
 ### MDS specializations
 
-`h_m_roth_mds_combinatorial` requires `m=n-k`; its parity counterpart requires `m=r`. Both check the MDS condition under `tol` and reject non-MDS input. **At zero redundancy, these two specializations return `0.0`**, preserving the existing native API. This is distinct from the general methods' `m=0` convention of `1.0`.
+`h_m_roth_mds_combinatorial` requires `m=n-k`; its parity counterpart requires `m=r`. Both check the MDS condition under `tol` and reject non-MDS input. **At zero redundancy, these two specializations return `0.0`**. This is distinct from the general methods' `m=0` convention of `1.0`.
 
 ## Backend availability and threads
 
+Every method defaults to `backend="python"`, even when native support is installed. Choose a backend explicitly to use a different implementation:
+
+| Backend | Supported methods | Implementation |
+| --- | --- | --- |
+| `python` | LP and combinatorial | NumPy/SciPy; LP uses SciPy's HiGHS solver |
+| `cpp` | Combinatorial | C++ |
+| `cpp-glpk` | LP | C++ with GLPK |
+| `cpp-highs` | LP | C++ with HiGHS |
+
+Install optional backends using the [installation guide](installation.md#install-optional-native-backends). Check which backends are available in your environment:
+
 ```python
-available_backends()  # list[str]
+from analog_ecc_heights import available_backends
+
+print(available_backends())  # ["python"] in a default installation
 ```
 
-Returns `"python"` and whichever of `"cpp"`, `"cpp-glpk"`, and `"cpp-highs"` can be loaded. The availability check may import native code; ordinary Python calls do not.
+`available_backends()` returns a `list[str]` containing `"python"` and whichever native backends can be loaded. An unavailable backend or solver failure raises an error; calls never switch to another backend automatically.
+
+Pass `num_threads=1` for sequential execution. Leaving it as `None` uses the backend default:
 
 | Backend | Accepted `num_threads` | Meaning of `None` |
 | --- | --- | --- |
@@ -119,8 +134,16 @@ Returns `"python"` and whichever of `"cpp"`, `"cpp-glpk"`, and `"cpp-highs"` can
 
 The parameter controls this package's workers. It does not set every NumPy/SciPy or BLAS internal thread count. Unsupported thread counts raise an error; an explicit parallel request is not silently ignored.
 
+Large problems can require exponentially many cases. Compare performance using matrices and height indices representative of your application.
+
+## Numerical behavior
+
+`tol` applies only to combinatorial methods. Rank decisions use complete-pivot LU with cutoff `tol * reference_scale`, where the reference scale is the largest absolute entry of the input matrix. Submatrices use their parent matrix's scale. Changing `tol` can change rank and MDS classifications, and whether a reported height is finite.
+
+LP feasibility and optimality tolerances are determined by the selected solver; LP functions do not accept `tol`. Nearly singular matrices, extreme coefficient scales, and different solver versions can produce different results or classifications across methods and backends. Compare finite results with a suitable numerical tolerance and handle positive infinity separately.
+
 ## Errors and compatibility
 
 Wrong option types raise `TypeError`; invalid matrix values, index ranges, backend combinations, rank conditions, and unsupported thread requests raise `ValueError`. Missing native support raises `ImportError` with installation guidance. LP solver failures raise `RuntimeError`. `m` and `num_threads` must be integer values; booleans are rejected.
 
-Native-enabled installations also provide the original `solve_m_height_cpp` import through a compatibility module. Its original function names, positional options, and native defaults remain available. The public `analog_ecc_heights` API provides the unified backend selection and stricter option validation described here. The compatibility module is part of the same distribution and requires the corresponding compiled extension for each function.
+`solve_m_height_cpp` remains available for existing code after installing the corresponding native backends. Its original function names, positional options, and native defaults are supported. Import from `analog_ecc_heights` to use the backend selection and option validation described in this guide.
