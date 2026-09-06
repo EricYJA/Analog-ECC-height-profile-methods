@@ -1,6 +1,6 @@
 # Development and release preparation
 
-Use the `analog-ecc` conda environment for this repository's code, tests, and build commands. Run commands below from the repository root unless stated otherwise. If conda has not been initialized in a Bash shell:
+Use the `analog-ecc` conda environment for this repository's local code, tests, and build commands. Run commands below from the repository root unless stated otherwise. If conda has not been initialized in a Bash shell:
 
 ```bash
 source /home/ccyuan/miniconda3/etc/profile.d/conda.sh
@@ -99,7 +99,7 @@ For HiGHS, enable `USE_HIGHS` and add its CMake prefix as needed. Compiler memor
 
 ## Continuous integration
 
-`.github/workflows/tests.yml` builds and tests the default package on Linux, macOS, and Windows with Python 3.10 and 3.14. An additional Ubuntu/Python 3.10 job tests NumPy 1.23.0 and SciPy 1.9.0, the declared minimum versions. Native Linux jobs build combinatorial-only, GLPK-only, HiGHS-only, and combined wheels from the source distribution and test their installed behavior. HiGHS is built as a system C++ library in the native job. CI validates artifacts but does not publish them.
+`.github/workflows/tests.yml` builds and tests the default package on Linux, macOS, and Windows with Python 3.10 and 3.14. These packaging jobs use standard CPython from `actions/setup-python` and isolated pip builds, avoiding conda DLL discovery problems in temporary Windows virtual environments. The native Linux jobs continue to use the `analog-ecc` conda environment. An additional Ubuntu/Python 3.10 job tests NumPy 1.23.0 and SciPy 1.9.0, the declared minimum versions. Native Linux jobs build combinatorial-only, GLPK-only, HiGHS-only, and combined wheels from the source distribution and test their installed behavior. HiGHS is built as a system C++ library in the native job. CI validates artifacts but does not publish them.
 
 ## Prepare a PyPI release
 
