@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "analog-ecc-heights"
-version = "0.1.0"
+version = "0.1.1"
 authors = [{name = "Changcheng Yuan", email = "eric.yuan.cc@gmail.com"}]
 description = "Height calculations for analog error-correcting codes"
 readme = "README.md"

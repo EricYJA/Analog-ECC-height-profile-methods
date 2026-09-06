@@ -12,7 +12,7 @@ Requires Python 3.10 or later. Install the published package from [PyPI](https:/
 python -m pip install analog-ecc-heights
 ```
 
-Pip installs NumPy >=1.23 and SciPy >=1.9 automatically. Version [0.1.0](https://pypi.org/project/analog-ecc-heights/0.1.0/) is available as a Python wheel and source archive.
+Pip installs NumPy >=1.23 and SciPy >=1.9 automatically. Version [0.1.1](https://pypi.org/project/analog-ecc-heights/0.1.1/) is available as a Python wheel and source archive.
 
 Use an existing Python environment or follow the [environment setup guide](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/docs/installation.md#choose-a-python-environment) to create a virtual environment or use Conda. If your Python command is `python3` or `py`, use it in place of `python`.
 
