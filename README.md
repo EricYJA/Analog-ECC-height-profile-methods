@@ -73,6 +73,10 @@ An unavailable backend raises an installation error. Unsupported combinations ra
 - [API, backend selection, and numerical behavior](docs/api.md)
 - Runnable examples: [basic usage](examples/basic_usage.py), [height profiles](examples/height_profile.py), and [backend comparison](examples/compare_backends.py)
 
+## License
+
+Licensed under the [MIT License](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/LICENSE).
+
 ## References
 
 All implementations are based on the methods and theorems developed in these papers:

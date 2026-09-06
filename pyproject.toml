@@ -8,6 +8,8 @@ version = "0.1.0"
 authors = [{name = "Changcheng Yuan", email = "eric.yuan.cc@gmail.com"}]
 description = "Height calculations for analog error-correcting codes"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.23", "scipy>=1.9"]
 classifiers = [
