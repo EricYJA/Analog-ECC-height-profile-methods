@@ -90,6 +90,61 @@ is used. HiGHS may still copy the model internally when loading it.
 
 Sources are `methods_jiang_lp.cc` and `methods_roth_lp.cc`.
 
+## Combinatorial API
+
+Each method has one implementation for sequential and parallel execution.
+All accept a final `num_threads=16` argument, after `tol=1e-10`:
+
+- `h_m_roth_primal_combinatorial(G, m=None, tol=1e-10, num_threads=16)`
+- `h_m_roth_primal_combinatorial_pruning(G, m, tol=1e-10, num_threads=16)`
+- `h_m_roth_dual_combinatorial_generator(G, m, tol=1e-10, num_threads=16)`
+- `h_m_roth_dual_combinatorial_parity(H, m, tol=1e-10, num_threads=16)`
+- `h_m_roth_mds_combinatorial(G, m, tol=1e-10, num_threads=16)`
+- `h_m_roth_mds_combinatorial_parity(H, m, tol=1e-10, num_threads=16)`
+
+Set `num_threads=1` for sequential execution of the same algorithm, including
+pruning. Nonpositive counts are rejected. Without OpenMP, the same code runs
+sequentially regardless of the requested positive count. Candidate evaluation
+uses dynamically scheduled OpenMP loops; distance/MDS prechecks remain serial.
+
+The combinatorial APIs use suffix-free names; the former `_omp` exports have
+been removed. Use `num_threads=1` for sequential execution. Existing `tol`
+positional arguments remain valid. For primal combinatorial, integer `m` returns a float;
+omitting `m` or passing `m=None` returns a list of heights for `m=1,...,n-k`.
+The separate `_omp_all` API has been removed. Full-profile computation still
+shares work across heights rather than calling the scalar method repeatedly.
+
+```python
+height = h_m_roth_primal_combinatorial(G, m=2, num_threads=1)
+profile = h_m_roth_primal_combinatorial(G, m=None, num_threads=16)
+```
+
+C++ uses same-name overloads: pass integer `m` for a `double`, or
+`std::nullopt` for `std::vector<double>`, followed by optional `tol` and
+`num_threads` arguments.
+
+The MDS generator method requires `m=n-k`; the MDS parity method requires
+`m=H.shape[0]`. Both reject non-MDS input. For MDS parity, the dual-parity
+formula specializes to the maximum row absolute sum of
+`inverse(H[:, S]) @ H[:, complement(S)]` over all subsets of size `m`.
+
+All combinatorial methods use full-pivot LU with the same parent-scale rank
+threshold and linear solves rather than explicit inverses. Subset enumeration,
+complements, column gathering, and factorization helpers are shared in
+`utils.hh`. Public input validation is performed once per call.
+
+Primal scalar, profile, and pruning paths share a transform built once per
+candidate basis. Dual methods factor once per candidate basis within each outer
+subset, solve multiple right-hand sides together, and retain a separate minimum
+for each target before taking the maximum. MDS G/H share a short implementation,
+using column/row absolute sums respectively.
+
+Outer subset lists are still materialized, but there are no string-key caches,
+global factorization caches, or additional workspace classes. Temporary
+coefficient buffers are reused within target/sign loops. The candidate sets,
+max/min nesting, strict primal admissibility comparisons, and pruning bounds
+are unchanged; arithmetic reordering may produce small floating-point differences.
+
 ## References
 
 1. Ron M. Roth, “[Analog Error-Correcting Codes](https://doi.org/10.1109/TIT.2020.2977918),” *IEEE Transactions on Information Theory*, 66(7), 4075–4088, 2020.

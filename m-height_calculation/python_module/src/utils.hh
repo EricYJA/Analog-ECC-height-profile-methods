@@ -9,6 +9,19 @@
 #include <vector>
 
 namespace m_height_utils {
+
+inline void validate_num_threads(int num_threads) {
+    if (num_threads < 1) {
+        throw std::invalid_argument("num_threads must be at least 1.");
+    }
+}
+
+inline void validate_m_for_columns(int m, int n) {
+    if (m < 0 || m >= n) {
+        throw std::invalid_argument("m must satisfy 0 <= m <= n-1.");
+    }
+}
+
 namespace detail {
 
 inline void validate_rank_tolerance(double tol) {
@@ -73,6 +86,31 @@ bool for_each_subset_until(int n, int subset_size, Fn&& fn) {
     return dfs(0, subset_size);
 }
 
+// All enumeration uses the same lexicographic iterator.
+template <typename Fn>
+void for_each_subset(int n, int size, Fn&& fn) {
+    for_each_subset_until(n, size, [&](const std::vector<int>& subset) {
+        fn(subset);
+        return true;
+    });
+}
+
+inline std::vector<std::vector<int>> collect_subsets(int n, int size) {
+    std::vector<std::vector<int>> subsets;
+    for_each_subset(n, size, [&](const auto& subset) { subsets.push_back(subset); });
+    return subsets;
+}
+
+template <typename Fn>
+void for_each_subset_from_pool(const std::vector<int>& pool, int size, Fn&& fn) {
+    if (size < 0 || size > static_cast<int>(pool.size())) return;
+    std::vector<int> subset(size);
+    for_each_subset(static_cast<int>(pool.size()), size, [&](const auto& indices) {
+        for (int i = 0; i < size; ++i) subset[i] = pool[indices[i]];
+        fn(subset);
+    });
+}
+
 inline Eigen::MatrixXd gather_columns(
     const Eigen::MatrixXd& M,
     const std::vector<int>& columns)
@@ -82,6 +120,16 @@ inline Eigen::MatrixXd gather_columns(
         out.col(idx) = M.col(columns[idx]);
     }
     return out;
+}
+
+// Rank acceptance and solves use the same factorization and parent scale.
+inline Eigen::FullPivLU<Eigen::MatrixXd> factor_columns(
+    const Eigen::MatrixXd& M, const std::vector<int>& columns,
+    double tol, double reference_scale)
+{
+    Eigen::FullPivLU<Eigen::MatrixXd> lu(gather_columns(M, columns));
+    set_numerical_rank_threshold(lu, tol, reference_scale);
+    return lu;
 }
 
 inline std::vector<int> complement_indices(
@@ -115,6 +163,26 @@ inline bool generator_minimum_distance_exceeds_validated(
         const std::vector<int> Sc = complement_indices(n, S);
         return numerical_rank(gather_columns(G, Sc), tol, scale) == k;
     });
+}
+
+inline bool parity_check_minimum_distance_exceeds_validated(
+    const Eigen::MatrixXd& H, int m, double tol)
+{
+    if (m > H.rows()) return false;
+    const double scale = matrix_scale(H);
+    // d > m iff every m-column submatrix is independent.
+    return for_each_subset_until(static_cast<int>(H.cols()), m, [&](const auto& S) {
+        return numerical_rank(gather_columns(H, S), tol, scale) == m;
+    });
+}
+
+inline int generator_minimum_distance_validated(const Eigen::MatrixXd& G, double tol) {
+    const int redundancy = static_cast<int>(G.cols() - G.rows());
+    // Use the same rank predicate as scalar calls, including near rank boundaries.
+    for (int m = 1; m <= redundancy; ++m) {
+        if (!generator_minimum_distance_exceeds_validated(G, m, tol)) return m;
+    }
+    return redundancy + 1;
 }
 
 }  // namespace detail
@@ -163,63 +231,24 @@ inline void validate_parity_check_matrix(const Eigen::MatrixXd& H, double tol) {
 }
 
 inline bool generator_minimum_distance_exceeds(
-    const Eigen::MatrixXd& G,
-    int m,
-    double tol)
+    const Eigen::MatrixXd& G, int m, double tol)
 {
     validate_generator_matrix(G, tol);
-
-    const int n = static_cast<int>(G.cols());
-    if (m < 0 || m >= n) {
-        std::ostringstream oss;
-        oss << "m must satisfy 0 <= m <= n-1, got m=" << m << ", n=" << n;
-        throw std::invalid_argument(oss.str());
-    }
+    validate_m_for_columns(m, static_cast<int>(G.cols()));
     return detail::generator_minimum_distance_exceeds_validated(G, m, tol);
 }
 
 inline bool parity_check_minimum_distance_exceeds(
-    const Eigen::MatrixXd& H,
-    int m,
-    double tol)
+    const Eigen::MatrixXd& H, int m, double tol)
 {
     validate_parity_check_matrix(H, tol);
-
-    const int r = static_cast<int>(H.rows());
-    const int n = static_cast<int>(H.cols());
-    if (m < 0 || m >= n) {
-        std::ostringstream oss;
-        oss << "m must satisfy 0 <= m <= n-1, got m=" << m << ", n=" << n;
-        throw std::invalid_argument(oss.str());
-    }
-    if (m > r) return false;
-    const double scale = detail::matrix_scale(H);
-
-    // A parity-check code has d > m exactly when every m columns of H are
-    // linearly independent.
-    return detail::for_each_subset_until(n, m, [&](const std::vector<int>& S) {
-        return detail::numerical_rank(detail::gather_columns(H, S), tol, scale) == m;
-    });
+    validate_m_for_columns(m, static_cast<int>(H.cols()));
+    return detail::parity_check_minimum_distance_exceeds_validated(H, m, tol);
 }
 
-inline int generator_minimum_distance(
-    const Eigen::MatrixXd& G,
-    double tol)
-{
+inline int generator_minimum_distance(const Eigen::MatrixXd& G, double tol) {
     validate_generator_matrix(G, tol);
-
-    const int n = static_cast<int>(G.cols());
-    const int redundancy = n - static_cast<int>(G.rows());
-
-    // Use the same monotone puncturing predicate as the scalar APIs. This is
-    // also robust when tolerance-based numerical rank is not a linear matroid.
-    for (int m = 1; m <= redundancy; ++m) {
-        if (!detail::generator_minimum_distance_exceeds_validated(G, m, tol)) {
-            return m;
-        }
-    }
-
-    return redundancy + 1;
+    return detail::generator_minimum_distance_validated(G, tol);
 }
 
 }  // namespace m_height_utils

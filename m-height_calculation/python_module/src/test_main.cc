@@ -48,13 +48,6 @@ int main() {
     const double ref = 2.0;
     const double tol = 1e-9;
 
-    auto check_close = [&](const char* name, double value) {
-        std::cout << name << " = " << value << "\n";
-        if (!std::isfinite(value) || std::abs(value - ref) > tol) {
-            throw std::runtime_error(std::string(name) + " failed reference check.");
-        }
-    };
-
     auto check_expected = [&](const char* name, double value, double expected) {
         std::cout << name << " = " << value << "\n";
         if (!std::isfinite(value) || std::abs(value - expected) > tol) {
@@ -143,16 +136,73 @@ int main() {
         }
     };
 
+    // Reference profiles use known small-case values or independent LP results.
+    // H is supplied explicitly or constructed once from G's kernel below.
+    auto check_comb_case = [&](const char* case_name, const Eigen::MatrixXd& G_case,
+                               const Eigen::MatrixXd& H_case,
+                               const std::vector<double>& expected, bool is_mds) {
+        const int n = static_cast<int>(G_case.cols());
+        const int r = n - static_cast<int>(G_case.rows());
+        if (H_case.rows() != r || H_case.cols() != n ||
+            Eigen::FullPivLU<Eigen::MatrixXd>(H_case).rank() != r ||
+            (G_case * H_case.transpose()).norm() >
+                1e-10 * std::max(1.0, G_case.norm() * H_case.norm()) ||
+            expected.size() < static_cast<size_t>(r) ||
+            expected.size() > static_cast<size_t>(n - 1)) {
+            throw std::runtime_error(std::string(case_name) + " has an invalid G/H fixture or profile.");
+        }
+        std::cout << "\nCombinatorial case: " << case_name << std::endl;
+        for (int threads : {1, 16}) {
+            auto check = [&](const char* name, int index, double value, double target) {
+                std::cout << "  " << name << " m=" << index << " threads=" << threads
+                          << " -> " << value << std::endl;
+                const bool matches = std::isinf(target)
+                    ? (std::isinf(value) && value > 0.0)
+                    : (std::isfinite(value) &&
+                       std::abs(value - target) <= 1e-8 * std::max(1.0, std::abs(target)));
+                if (!matches) {
+                    throw std::runtime_error(std::string(name) + " failed " + case_name +
+                        " (m=" + std::to_string(index) + ", threads=" +
+                        std::to_string(threads) + ", expected=" + std::to_string(target) + ").");
+                }
+            };
+            const auto profile = h_m_roth_primal_combinatorial(
+                G_case, std::nullopt, 1e-10, threads);
+            if (profile.size() != static_cast<size_t>(r))
+                throw std::runtime_error(std::string(case_name) + " has an incorrect profile length.");
+
+            for (int index = 0; index <= static_cast<int>(expected.size()); ++index) {
+                const double target = index == 0 ? 1.0 : expected[index - 1];
+                check("h_m_roth_primal_combinatorial", index,
+                    h_m_roth_primal_combinatorial(G_case, index, 1e-10, threads), target);
+                check("h_m_roth_primal_combinatorial_pruning", index,
+                    h_m_roth_primal_combinatorial_pruning(G_case, index, 1e-10, threads), target);
+                check("h_m_roth_dual_combinatorial_generator", index,
+                    h_m_roth_dual_combinatorial_generator(G_case, index, 1e-10, threads), target);
+                check("h_m_roth_dual_combinatorial_parity", index,
+                    h_m_roth_dual_combinatorial_parity(H_case, index, 1e-10, threads), target);
+                if (index > 0 && index <= r)
+                    check("h_m_roth_primal_combinatorial [profile]", index, profile[index - 1], target);
+            }
+            if (is_mds) {
+                const double target = r == 0 ? 1.0 : expected[r - 1];
+                check("h_m_roth_mds_combinatorial", r,
+                    h_m_roth_mds_combinatorial(G_case, r, 1e-10, threads), target);
+                check("h_m_roth_mds_combinatorial_parity", r,
+                    h_m_roth_mds_combinatorial_parity(H_case, r, 1e-10, threads), target);
+            } else {
+                expect_invalid_argument("MDS G rejects non-MDS input", [&] {
+                    (void)h_m_roth_mds_combinatorial(G_case, r, 1e-10, threads);
+                });
+                expect_invalid_argument("MDS H rejects non-MDS input", [&] {
+                    (void)h_m_roth_mds_combinatorial_parity(H_case, r, 1e-10, threads);
+                });
+            }
+        }
+    };
+
     check_lp_case("initial [3,2]", G, m, ref);
-    check_close("h_m_roth_primal_combinatorial", h_m_roth_primal_combinatorial(G, m));
-    check_close("h_m_roth_mds_combinatorial", h_m_roth_mds_combinatorial(G, m));
-    check_close("h_m_roth_mds_combinatorial_omp", h_m_roth_mds_combinatorial_omp(G, m));
-    check_close("h_m_roth_primal_combinatorial_omp", h_m_roth_primal_combinatorial_omp(G, m));
-    check_close("h_m_roth_primal_combinatorial_pruning_omp", h_m_roth_primal_combinatorial_pruning_omp(G, m));
-    check_close("h_m_roth_dual_combinatorial_generator", h_m_roth_dual_combinatorial_generator(G, m));
-    check_close("h_m_roth_dual_combinatorial_generator_omp", h_m_roth_dual_combinatorial_generator_omp(G, m));
-    check_close("h_m_roth_dual_combinatorial_parity", h_m_roth_dual_combinatorial_parity(H, m));
-    check_close("h_m_roth_dual_combinatorial_parity_omp", h_m_roth_dual_combinatorial_parity_omp(H, m));
+    check_comb_case("initial [3,2]", G, H, {ref}, true);
 
     // Theorems 5 and 8 apply for m < d. This [4,2,2] code checks
     // both sides of that boundary: h_1 = 1 and h_2 = +infinity.
@@ -163,91 +213,11 @@ int main() {
     Eigen::MatrixXd H_distance_2(2, 4);
     H_distance_2 << 1.0, 0.0, -1.0, 0.0,
                     0.0, 1.0, 0.0, -1.0;
-
-    check_expected(
-        "h_m_roth_dual_combinatorial_generator(m=0)",
-        h_m_roth_dual_combinatorial_generator(G_distance_2, 0),
-        1.0);
-    check_expected(
-        "h_m_roth_dual_combinatorial_generator_omp(m=0)",
-        h_m_roth_dual_combinatorial_generator_omp(G_distance_2, 0),
-        1.0);
-    check_expected(
-        "h_m_roth_dual_combinatorial_parity(m=0)",
-        h_m_roth_dual_combinatorial_parity(H_distance_2, 0),
-        1.0);
-    check_expected(
-        "h_m_roth_dual_combinatorial_parity_omp(m=0)",
-        h_m_roth_dual_combinatorial_parity_omp(H_distance_2, 0),
-        1.0);
-
     check_lp_case("distance-2 boundary", G_distance_2, 1, 1.0);
     check_lp_case("distance-2 boundary", G_distance_2, 2, no_cap);
     check_lp_case("distance-2 boundary", G_distance_2, 3, no_cap);
-
-    const std::vector<std::pair<const char*, double>> finite_boundary_values = {
-        {"h_m_roth_primal_combinatorial(d=2,m=1)",
-         h_m_roth_primal_combinatorial(G_distance_2, 1)},
-        {"h_m_roth_primal_combinatorial_omp(d=2,m=1)",
-         h_m_roth_primal_combinatorial_omp(G_distance_2, 1)},
-        {"h_m_roth_primal_combinatorial_pruning_omp(d=2,m=1)",
-         h_m_roth_primal_combinatorial_pruning_omp(G_distance_2, 1)},
-        {"h_m_roth_dual_combinatorial_generator(d=2,m=1)",
-         h_m_roth_dual_combinatorial_generator(G_distance_2, 1)},
-        {"h_m_roth_dual_combinatorial_generator_omp(d=2,m=1)",
-         h_m_roth_dual_combinatorial_generator_omp(G_distance_2, 1)},
-        {"h_m_roth_dual_combinatorial_parity(d=2,m=1)",
-         h_m_roth_dual_combinatorial_parity(H_distance_2, 1)},
-        {"h_m_roth_dual_combinatorial_parity_omp(d=2,m=1)",
-         h_m_roth_dual_combinatorial_parity_omp(H_distance_2, 1)},
-    };
-    for (const auto& [name, value] : finite_boundary_values) {
-        check_expected(name, value, 1.0);
-    }
-
-    const std::vector<std::pair<const char*, double>> infinite_boundary_values = {
-        {"h_m_roth_primal_combinatorial(d=2,m=2)",
-         h_m_roth_primal_combinatorial(G_distance_2, 2)},
-        {"h_m_roth_primal_combinatorial_omp(d=2,m=2)",
-         h_m_roth_primal_combinatorial_omp(G_distance_2, 2)},
-        {"h_m_roth_primal_combinatorial_pruning_omp(d=2,m=2)",
-         h_m_roth_primal_combinatorial_pruning_omp(G_distance_2, 2)},
-        {"h_m_roth_dual_combinatorial_generator(d=2,m=2)",
-         h_m_roth_dual_combinatorial_generator(G_distance_2, 2)},
-        {"h_m_roth_dual_combinatorial_generator_omp(d=2,m=2)",
-         h_m_roth_dual_combinatorial_generator_omp(G_distance_2, 2)},
-        {"h_m_roth_dual_combinatorial_parity(d=2,m=2)",
-         h_m_roth_dual_combinatorial_parity(H_distance_2, 2)},
-        {"h_m_roth_dual_combinatorial_parity_omp(d=2,m=2)",
-         h_m_roth_dual_combinatorial_parity_omp(H_distance_2, 2)},
-        {"h_m_roth_primal_combinatorial(d=2,m=3)",
-         h_m_roth_primal_combinatorial(G_distance_2, 3)},
-        {"h_m_roth_primal_combinatorial_omp(d=2,m=3)",
-         h_m_roth_primal_combinatorial_omp(G_distance_2, 3)},
-        {"h_m_roth_primal_combinatorial_pruning_omp(d=2,m=3)",
-         h_m_roth_primal_combinatorial_pruning_omp(G_distance_2, 3)},
-        {"h_m_roth_dual_combinatorial_generator(d=2,m=3)",
-         h_m_roth_dual_combinatorial_generator(G_distance_2, 3)},
-        {"h_m_roth_dual_combinatorial_generator_omp(d=2,m=3)",
-         h_m_roth_dual_combinatorial_generator_omp(G_distance_2, 3)},
-        {"h_m_roth_dual_combinatorial_parity(d=2,m=3)",
-         h_m_roth_dual_combinatorial_parity(H_distance_2, 3)},
-        {"h_m_roth_dual_combinatorial_parity_omp(d=2,m=3)",
-         h_m_roth_dual_combinatorial_parity_omp(H_distance_2, 3)},
-    };
-    for (const auto& [name, value] : infinite_boundary_values) {
-        check_positive_infinity(name, value);
-    }
-
-    const std::vector<double> distance_2_profile =
-        h_m_roth_primal_combinatorial_omp_all(G_distance_2);
-    if (distance_2_profile.size() != 2) {
-        throw std::runtime_error("The [4,2,2] height profile must contain two entries.");
-    }
-    check_expected("h_m_roth_primal_combinatorial_omp_all(d=2,m=1)",
-                   distance_2_profile[0], 1.0);
-    check_positive_infinity("h_m_roth_primal_combinatorial_omp_all(d=2,m=2)",
-                            distance_2_profile[1]);
+    check_comb_case("distance-2 boundary", G_distance_2, H_distance_2,
+                    {1.0, no_cap, no_cap}, false);
 
     // The all-m cutoff must use the same numerical-rank predicate as scalar
     // calls; a tolerance-based hyperplane shortcut can otherwise infer d = 0.
@@ -255,25 +225,25 @@ int main() {
     G_numerical_distance << 0.0,  0.0,   1e-4,
                             1e-6, -3e-5, 1.0;
     check_positive_infinity(
-        "h_m_roth_primal_combinatorial(numerical d=1,m=1)",
-        h_m_roth_primal_combinatorial(G_numerical_distance, 1));
+        "h_m_roth_primal_combinatorial [threads=1](numerical d=1,m=1)",
+        h_m_roth_primal_combinatorial(G_numerical_distance, 1, 1e-10, 1));
     const std::vector<double> numerical_distance_profile =
-        h_m_roth_primal_combinatorial_omp_all(G_numerical_distance);
+        h_m_roth_primal_combinatorial(G_numerical_distance, std::nullopt);
     if (numerical_distance_profile.size() != 1) {
         throw std::runtime_error("The numerical [3,2] profile must contain one entry.");
     }
     check_positive_infinity(
-        "h_m_roth_primal_combinatorial_omp_all(numerical d=1,m=1)",
+        "h_m_roth_primal_combinatorial [profile](numerical d=1,m=1)",
         numerical_distance_profile[0]);
 
     Eigen::MatrixXd H_roundoff_column(1, 3);
     H_roundoff_column << 1.0, 1e-14, 1.0;
     check_positive_infinity(
+        "h_m_roth_dual_combinatorial_parity [threads=1](roundoff-sized column)",
+        h_m_roth_dual_combinatorial_parity(H_roundoff_column, 1, 1e-10, 1));
+    check_positive_infinity(
         "h_m_roth_dual_combinatorial_parity(roundoff-sized column)",
         h_m_roth_dual_combinatorial_parity(H_roundoff_column, 1));
-    check_positive_infinity(
-        "h_m_roth_dual_combinatorial_parity_omp(roundoff-sized column)",
-        h_m_roth_dual_combinatorial_parity_omp(H_roundoff_column, 1));
 
     // A zero caller tolerance means exact floating-point rank. The solve must
     // not silently substitute Eigen's larger default QR threshold.
@@ -281,12 +251,12 @@ int main() {
     G_exact_rank << 1.0, 1.0,   0.0,
                     0.0, 1e-16, 1.0;
     const double exact_rank_ref =
-        h_m_roth_primal_combinatorial(G_exact_rank, 1, 0.0);
+        h_m_roth_primal_combinatorial(G_exact_rank, 1, 0.0, 1);
     const std::vector<std::pair<const char*, double>> exact_rank_values = {
+        {"h_m_roth_dual_combinatorial_generator [threads=1](tol=0)",
+         h_m_roth_dual_combinatorial_generator(G_exact_rank, 1, 0.0, 1)},
         {"h_m_roth_dual_combinatorial_generator(tol=0)",
          h_m_roth_dual_combinatorial_generator(G_exact_rank, 1, 0.0)},
-        {"h_m_roth_dual_combinatorial_generator_omp(tol=0)",
-         h_m_roth_dual_combinatorial_generator_omp(G_exact_rank, 1, 0.0)},
     };
     for (const auto& [name, value] : exact_rank_values) {
         std::cout << name << " = " << value << "\n";
@@ -308,12 +278,12 @@ int main() {
     G_strict_unit_boundary <<
         1.0, 1.0 + strict_unit_epsilon, 1.0 + strict_unit_epsilon;
     const std::vector<std::pair<const char*, double>> strict_unit_values = {
+        {"h_m_roth_primal_combinatorial [threads=1](strict unit boundary)",
+         h_m_roth_primal_combinatorial(G_strict_unit_boundary, 1, 0.0, 1)},
         {"h_m_roth_primal_combinatorial(strict unit boundary)",
          h_m_roth_primal_combinatorial(G_strict_unit_boundary, 1, 0.0)},
-        {"h_m_roth_primal_combinatorial_omp(strict unit boundary)",
-         h_m_roth_primal_combinatorial_omp(G_strict_unit_boundary, 1, 0.0)},
-        {"h_m_roth_primal_combinatorial_pruning_omp(strict unit boundary)",
-         h_m_roth_primal_combinatorial_pruning_omp(
+        {"h_m_roth_primal_combinatorial_pruning(strict unit boundary)",
+         h_m_roth_primal_combinatorial_pruning(
              G_strict_unit_boundary, 1, 0.0)},
     };
     for (const auto& [name, value] : strict_unit_values) {
@@ -325,81 +295,75 @@ int main() {
         }
     }
     const std::vector<double> strict_unit_profile =
-        h_m_roth_primal_combinatorial_omp_all(G_strict_unit_boundary, 0.0);
+        h_m_roth_primal_combinatorial(G_strict_unit_boundary, std::nullopt, 0.0);
     if (strict_unit_profile.size() != 2 ||
         !std::isfinite(strict_unit_profile[0]) ||
         std::abs(strict_unit_profile[0] - 1.0) > strict_unit_check_tol) {
         throw std::runtime_error(
-            "h_m_roth_primal_combinatorial_omp_all must use Theorem 5's "
+            "h_m_roth_primal_combinatorial [profile] must use Theorem 5's "
             "strict unit comparisons.");
     }
     expect_invalid_argument(
+        "h_m_roth_mds_combinatorial [threads=1](non-MDS)",
+        [&] { (void)h_m_roth_mds_combinatorial(G_distance_2, 2, 1e-10, 1); });
+    expect_invalid_argument(
         "h_m_roth_mds_combinatorial(non-MDS)",
         [&] { (void)h_m_roth_mds_combinatorial(G_distance_2, 2); });
-    expect_invalid_argument(
-        "h_m_roth_mds_combinatorial_omp(non-MDS)",
-        [&] { (void)h_m_roth_mds_combinatorial_omp(G_distance_2, 2); });
 
     Eigen::MatrixXd G_singular_square(2, 2);
     G_singular_square << 1.0, 0.0,
                          0.0, 0.0;
     expect_invalid_argument(
+        "h_m_roth_mds_combinatorial [threads=1](rank-deficient square G)",
+        [&] { (void)h_m_roth_mds_combinatorial(G_singular_square, 0, 1e-10, 1); });
+    expect_invalid_argument(
         "h_m_roth_mds_combinatorial(rank-deficient square G)",
         [&] { (void)h_m_roth_mds_combinatorial(G_singular_square, 0); });
-    expect_invalid_argument(
-        "h_m_roth_mds_combinatorial_omp(rank-deficient square G)",
-        [&] { (void)h_m_roth_mds_combinatorial_omp(G_singular_square, 0); });
 
     Eigen::MatrixXd G_rank_deficient(2, 3);
     G_rank_deficient << 1.0, 0.0, 1.0,
                         0.0, 0.0, 0.0;
     expect_invalid_argument(
+        "h_m_roth_primal_combinatorial [threads=1](rank-deficient G)",
+        [&] { (void)h_m_roth_primal_combinatorial(G_rank_deficient, 1, 1e-10, 1); });
+    expect_invalid_argument(
         "h_m_roth_primal_combinatorial(rank-deficient G)",
         [&] { (void)h_m_roth_primal_combinatorial(G_rank_deficient, 1); });
     expect_invalid_argument(
-        "h_m_roth_primal_combinatorial_omp(rank-deficient G)",
-        [&] { (void)h_m_roth_primal_combinatorial_omp(G_rank_deficient, 1); });
+        "h_m_roth_primal_combinatorial [profile](rank-deficient G)",
+        [&] { (void)h_m_roth_primal_combinatorial(G_rank_deficient, std::nullopt); });
     expect_invalid_argument(
-        "h_m_roth_primal_combinatorial_omp_all(rank-deficient G)",
-        [&] { (void)h_m_roth_primal_combinatorial_omp_all(G_rank_deficient); });
-    expect_invalid_argument(
-        "h_m_roth_primal_combinatorial_pruning_omp(rank-deficient G)",
-        [&] { (void)h_m_roth_primal_combinatorial_pruning_omp(
+        "h_m_roth_primal_combinatorial_pruning(rank-deficient G)",
+        [&] { (void)h_m_roth_primal_combinatorial_pruning(
             G_rank_deficient, 1); });
     expect_invalid_argument(
-        "h_m_roth_dual_combinatorial_generator(rank-deficient G)",
-        [&] { (void)h_m_roth_dual_combinatorial_generator(G_rank_deficient, 1); });
+        "h_m_roth_dual_combinatorial_generator [threads=1](rank-deficient G)",
+        [&] { (void)h_m_roth_dual_combinatorial_generator(G_rank_deficient, 1, 1e-10, 1); });
     expect_invalid_argument(
-        "h_m_roth_dual_combinatorial_generator_omp(rank-deficient G)",
-        [&] { (void)h_m_roth_dual_combinatorial_generator_omp(
+        "h_m_roth_dual_combinatorial_generator(rank-deficient G)",
+        [&] { (void)h_m_roth_dual_combinatorial_generator(
             G_rank_deficient, 1); });
 
     Eigen::MatrixXd H_rank_deficient(2, 4);
     H_rank_deficient << 1.0, 0.0, 1.0, 0.0,
                         1.0, 0.0, 1.0, 0.0;
     expect_invalid_argument(
+        "h_m_roth_dual_combinatorial_parity [threads=1](rank-deficient H)",
+        [&] { (void)h_m_roth_dual_combinatorial_parity(H_rank_deficient, 1, 1e-10, 1); });
+    expect_invalid_argument(
         "h_m_roth_dual_combinatorial_parity(rank-deficient H)",
         [&] { (void)h_m_roth_dual_combinatorial_parity(H_rank_deficient, 1); });
-    expect_invalid_argument(
-        "h_m_roth_dual_combinatorial_parity_omp(rank-deficient H)",
-        [&] { (void)h_m_roth_dual_combinatorial_parity_omp(H_rank_deficient, 1); });
 
     Eigen::MatrixXd G_mds_4_2(2, 4);
     G_mds_4_2 << 1.0, 0.0, 1.0, 1.0,
                  0.0, 1.0, 1.0, 2.0;
 
-    const int m_mds_4_2 = static_cast<int>(G_mds_4_2.cols() - G_mds_4_2.rows());
-    const double ref_mds_4_2 = h_m_roth_primal_combinatorial(G_mds_4_2, m_mds_4_2);
-    const double mds_value_4_2 = h_m_roth_mds_combinatorial(G_mds_4_2, m_mds_4_2);
-    const double mds_value_4_2_omp = h_m_roth_mds_combinatorial_omp(G_mds_4_2, m_mds_4_2);
-    std::cout << "h_m_roth_mds_combinatorial([4,2] MDS) = " << mds_value_4_2 << "\n";
-    if (std::abs(mds_value_4_2 - ref_mds_4_2) > tol) {
-        throw std::runtime_error("h_m_roth_mds_combinatorial disagrees with the exact primal combinatorial solver on an MDS case.");
-    }
-    std::cout << "h_m_roth_mds_combinatorial_omp([4,2] MDS) = " << mds_value_4_2_omp << "\n";
-    if (std::abs(mds_value_4_2_omp - ref_mds_4_2) > tol) {
-        throw std::runtime_error("h_m_roth_mds_combinatorial_omp disagrees with the exact primal combinatorial solver on an MDS case.");
-    }
+    const int m_mds_4_2 = 2;
+    const double ref_mds_4_2 = 3.0;
+    Eigen::MatrixXd H_mds_4_2(2, 4);
+    H_mds_4_2 << -1.0, -1.0, 1.0, 0.0,
+                 -1.0, -2.0, 0.0, 1.0;
+    check_comb_case("[4,2] MDS", G_mds_4_2, H_mds_4_2, {2.0, ref_mds_4_2}, true);
 
     // Keep the LU solve threshold consistent with the parent-matrix rank
     // convention even when elimination causes pivot growth.
@@ -410,22 +374,17 @@ int main() {
         -2.01912337e-10, -1.09673288e-10,  1.28596255e-10,  5.25175799e-11;
     const double near_singular_tol = 1e-10;
     const double near_singular_ref = h_m_roth_primal_combinatorial(
-        G_near_singular_mds, 1, near_singular_tol);
+        G_near_singular_mds, 1, near_singular_tol, 1);
+    check_expected(
+        "h_m_roth_mds_combinatorial [threads=1](near-singular MDS)",
+        h_m_roth_mds_combinatorial(G_near_singular_mds, 1, near_singular_tol, 1),
+        near_singular_ref);
     check_expected(
         "h_m_roth_mds_combinatorial(near-singular MDS)",
         h_m_roth_mds_combinatorial(G_near_singular_mds, 1, near_singular_tol),
         near_singular_ref);
-    check_expected(
-        "h_m_roth_mds_combinatorial_omp(near-singular MDS)",
-        h_m_roth_mds_combinatorial_omp(G_near_singular_mds, 1, near_singular_tol),
-        near_singular_ref);
 
     check_lp_case("[4,2] MDS", G_mds_4_2, m_mds_4_2, ref_mds_4_2);
-
-    const std::vector<double> hm_all = h_m_roth_primal_combinatorial_omp_all(G);
-    if (hm_all.size() != 1 || std::abs(hm_all[0] - ref) > tol) {
-        throw std::runtime_error("h_m_roth_primal_combinatorial_omp_all failed reference check.");
-    }
 
     // This case distinguishes Roth Eq. (15), including its admissibility
     // conditions, from an unrestricted max over the complement. The latter
@@ -435,37 +394,12 @@ int main() {
                            0.0, 1.0, 2.0, -1.0, 3.0;
     const std::vector<double> complement_refs = {2.0, 4.0, 8.0};
     for (int m_case = 1; m_case <= static_cast<int>(complement_refs.size()); ++m_case) {
-        const double expected = complement_refs[static_cast<size_t>(m_case - 1)];
-        check_lp_case("Roth complement", G_primal_complement, m_case, expected);
-        const std::vector<std::pair<const char*, double>> values = {
-            {"h_m_roth_primal_combinatorial", h_m_roth_primal_combinatorial(
-                G_primal_complement, m_case)},
-            {"h_m_roth_primal_combinatorial_omp", h_m_roth_primal_combinatorial_omp(
-                G_primal_complement, m_case)},
-            {"h_m_roth_primal_combinatorial_pruning_omp",
-             h_m_roth_primal_combinatorial_pruning_omp(
-                 G_primal_complement, m_case)},
-        };
-        for (const auto& [name, value] : values) {
-            if (std::abs(value - expected) > tol) {
-                throw std::runtime_error(
-                    std::string(name) + " failed Roth complement reference check.");
-            }
-        }
+        check_lp_case("Roth complement", G_primal_complement, m_case, complement_refs[m_case - 1]);
     }
-    const std::vector<double> complement_all =
-        h_m_roth_primal_combinatorial_omp_all(G_primal_complement);
-    if (complement_all.size() != complement_refs.size()) {
-        throw std::runtime_error(
-            "h_m_roth_primal_combinatorial_omp_all returned an unexpected "
-            "Roth complement output length.");
-    }
-    for (int idx = 0; idx < static_cast<int>(complement_refs.size()); ++idx) {
-        if (std::abs(complement_all[idx] - complement_refs[idx]) > tol) {
-            throw std::runtime_error(
-                "h_m_roth_primal_combinatorial_omp_all failed Roth complement reference check.");
-        }
-    }
+    const Eigen::MatrixXd H_primal_complement =
+        Eigen::FullPivLU<Eigen::MatrixXd>(G_primal_complement).kernel().transpose();
+    check_comb_case("Roth complement", G_primal_complement, H_primal_complement,
+                    complement_refs, true);
 
     const Eigen::MatrixXd G_10_7_3 = make_matrix(7, 10, {
         1.219, -0.028, 1.206, 0.604, 0.055, -2.649, 1.212, -2.646, -0.373, 0.004, 
@@ -485,33 +419,18 @@ int main() {
         0.005, 0.007, 0.012, 0.004, 1.005, 2.346, -1.832, -0.194, -1.172, 0.64
     });
 
-    const std::vector<double> hm_all_10_5_5 = h_m_roth_primal_combinatorial_omp_all(G_10_5_5);
-    if (hm_all_10_5_5.size() != static_cast<size_t>(G_10_5_5.cols() - G_10_5_5.rows())) {
-        throw std::runtime_error("h_m_roth_primal_combinatorial_omp_all returned an unexpected output length.");
-    }
-    for (int m_case = 1; m_case <= static_cast<int>(hm_all_10_5_5.size()); ++m_case) {
-        const double scalar_value = h_m_roth_primal_combinatorial_omp(G_10_5_5, m_case);
-        if (std::abs(hm_all_10_5_5[static_cast<size_t>(m_case - 1)] - scalar_value) > tol) {
-            throw std::runtime_error("h_m_roth_primal_combinatorial_omp_all disagrees with the scalar OMP solver.");
-        }
-    }
-    std::cout << "\nh_m_roth_primal_combinatorial_omp_all consistency check passed.\n";
-
-    auto run_omp_case = [&](const char* case_name, const Eigen::MatrixXd& G_case, int m_case) {
-        std::cout << "\n" << case_name << " (m = " << m_case << ")\n";
-        const double hm_omp = h_m_roth_primal_combinatorial_omp(G_case, m_case);
-        std::cout << "h_m_roth_primal_combinatorial_omp = " << hm_omp << "\n";
-        check_lp_case(case_name, G_case, m_case, hm_omp);
+    auto check_large_case = [&](const char* case_name, const Eigen::MatrixXd& G_case) {
+        const int r = static_cast<int>(G_case.cols() - G_case.rows());
+        const Eigen::MatrixXd H_case =
+            Eigen::FullPivLU<Eigen::MatrixXd>(G_case).kernel().transpose();
+        std::vector<double> expected;
+        for (int index = 1; index <= r; ++index)
+            expected.push_back(h_m_roth_primal_lp_glpk(G_case, index, no_cap));
+        check_comb_case(case_name, G_case, H_case, expected, true);
+        check_lp_case(case_name, G_case, r, expected.back());
     };
-
-    run_omp_case("G_10_7_3", G_10_7_3, 3);
-    run_omp_case("G_10_5_5", G_10_5_5, 5);
-
-    double hm_mds_10_7_3 = h_m_roth_mds_combinatorial(G_10_7_3, 3);
-    double hm_mds_10_5_5 = h_m_roth_mds_combinatorial(G_10_5_5, 5);
-    
-    std::cout << "\nh_m_roth_mds_combinatorial(G_10_7_3) = " << hm_mds_10_7_3 << "\n";
-    std::cout << "\nh_m_roth_mds_combinatorial(G_10_5_5) = " << hm_mds_10_5_5 << "\n";
+    check_large_case("G_10_7_3", G_10_7_3);
+    check_large_case("G_10_5_5", G_10_5_5);
 
     const Eigen::MatrixXd G_untf_regression_16_3 = make_matrix(3, 16, {
         4.72841867e-01, -5.01380294e-01, -9.99249916e-01, 3.72892349e-01,
@@ -530,10 +449,10 @@ int main() {
     const int m_untf_regression_16_3 = 13;
     const double untf_regression_tol = 1e-8;
     const double untf_regression_ref = h_m_roth_primal_combinatorial(
+        G_untf_regression_16_3, m_untf_regression_16_3, untf_regression_tol, 1);
+    const double untf_regression_ref_omp = h_m_roth_primal_combinatorial(
         G_untf_regression_16_3, m_untf_regression_16_3, untf_regression_tol);
-    const double untf_regression_ref_omp = h_m_roth_primal_combinatorial_omp(
-        G_untf_regression_16_3, m_untf_regression_16_3, untf_regression_tol);
-    std::cout << "\nh_m_roth_primal_combinatorial(UNTF regression [16,3]) = "
+    std::cout << "\nh_m_roth_primal_combinatorial [threads=1](UNTF regression [16,3]) = "
               << untf_regression_ref << "\n";
     const double untf_regression_rel_tol = 1e-5;
     auto check_regression_close = [&](const char* name, double value) {
@@ -542,7 +461,7 @@ int main() {
             throw std::runtime_error(std::string(name) + " disagrees on the UNTF [16,3] regression case.");
         }
     };
-    check_regression_close("h_m_roth_primal_combinatorial_omp", untf_regression_ref_omp);
+    check_regression_close("h_m_roth_primal_combinatorial", untf_regression_ref_omp);
 
 
     const Eigen::MatrixXd G_untf_regression_16_5 = make_matrix(5, 16, {
@@ -569,10 +488,10 @@ int main() {
     });
     const int m_untf_regression_16_5 = 11;
     const double untf_regression_16_5_ref = h_m_roth_primal_combinatorial(
+        G_untf_regression_16_5, m_untf_regression_16_5, untf_regression_tol, 1);
+    const double untf_regression_16_5_ref_omp = h_m_roth_primal_combinatorial(
         G_untf_regression_16_5, m_untf_regression_16_5, untf_regression_tol);
-    const double untf_regression_16_5_ref_omp = h_m_roth_primal_combinatorial_omp(
-        G_untf_regression_16_5, m_untf_regression_16_5, untf_regression_tol);
-    std::cout << "\nh_m_roth_primal_combinatorial(UNTF regression [16,5]) = "
+    std::cout << "\nh_m_roth_primal_combinatorial [threads=1](UNTF regression [16,5]) = "
               << untf_regression_16_5_ref << "\n";
     auto check_regression_16_5_close = [&](const char* name, double value) {
         const double scale = std::max(1.0, std::abs(untf_regression_16_5_ref));
@@ -580,7 +499,7 @@ int main() {
             throw std::runtime_error(std::string(name) + " disagrees on the UNTF [16,5] regression case.");
         }
     };
-    check_regression_16_5_close("h_m_roth_primal_combinatorial_omp", untf_regression_16_5_ref_omp);
+    check_regression_16_5_close("h_m_roth_primal_combinatorial", untf_regression_16_5_ref_omp);
 
     std::cout << "All LP and Roth m-height checks passed.\n";
     return 0;
