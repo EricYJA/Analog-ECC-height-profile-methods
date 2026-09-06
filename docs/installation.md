@@ -87,9 +87,11 @@ Use the same build options as above for other combinations. `--no-cache-dir` avo
 Point CMake at an installation prefix when dependencies are installed outside standard search locations:
 
 ```bash
-python -m pip install . -Cwheel.cmake=true -Ccmake.define.USE_HIGHS=ON \
-  -Ccmake.define.CMAKE_PREFIX_PATH=/path/to/native/prefix
+CMAKE_PREFIX_PATH=/path/to/native/prefix \
+  python -m pip install . -Cwheel.cmake=true -Ccmake.define.USE_HIGHS=ON
 ```
+
+Use the `CMAKE_PREFIX_PATH` environment variable here. Passing `-Ccmake.define.CMAKE_PREFIX_PATH=...` replaces the paths that scikit-build-core supplies for isolated build dependencies such as pybind11.
 
 The CMake search also accepts these explicit settings:
 

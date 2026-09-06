@@ -119,6 +119,9 @@ jobs:
           cmake --build "$RUNNER_TEMP/highs-build" --parallel 2
           cmake --install "$RUNNER_TEMP/highs-build"
       - name: Build native wheel from the source distribution
+        env:
+          # Preserve scikit-build-core's isolated build dependency search paths.
+          CMAKE_PREFIX_PATH: ${{ runner.temp }}/highs-install
         run: |
           conda activate analog-ecc
           python -m build --sdist
@@ -126,8 +129,7 @@ jobs:
             -Cwheel.cmake=true \
             -Ccmake.define.BUILD_CPP_COMB=${{ matrix.comb }} \
             -Ccmake.define.USE_GLPK=${{ matrix.glpk }} \
-            -Ccmake.define.USE_HIGHS=${{ matrix.highs }} \
-            -Ccmake.define.CMAKE_PREFIX_PATH="$RUNNER_TEMP/highs-install"
+            -Ccmake.define.USE_HIGHS=${{ matrix.highs }}
           python -m twine check native-dist/*
           python -m pip install --no-deps native-dist/*.whl
       - name: Test native package and release artifacts
