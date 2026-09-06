@@ -5,7 +5,11 @@ import subprocess
 import sys
 import unittest
 import numpy as np
-import solve_m_height_cpp as s
+try:
+    from analog_ecc_heights.cpp_backend.adapter import load_native
+    s = load_native()
+except ImportError as exc:
+    raise unittest.SkipTest(f"Native extension unavailable: {exc}") from exc
 
 
 class LpBackendTests(unittest.TestCase):

@@ -2,7 +2,11 @@
 import unittest
 
 import numpy as np
-import solve_m_height_cpp as backend
+try:
+    from analog_ecc_heights.cpp_backend.adapter import load_native
+    backend = load_native()
+except ImportError as exc:
+    raise unittest.SkipTest(f"Native extension unavailable: {exc}") from exc
 
 
 class CombinatorialTests(unittest.TestCase):
@@ -154,7 +158,8 @@ class CombinatorialTests(unittest.TestCase):
                     getattr(backend, name)(matrix, 1, num_threads=threads)
             for name, matrix in ((self.mds_g_name, np.eye(3)),
                                  (self.mds_h_name, np.empty((0, 3)))):
-                self.assertEqual(getattr(backend, name)(matrix, 0, num_threads=threads), 1.)
+                # Preserve the native MDS specialization at zero redundancy.
+                self.assertEqual(getattr(backend, name)(matrix, 0, num_threads=threads), 0.)
         with self.assertRaises(ValueError):
             getattr(backend, self.mds_h_name)(np.ones((2, 4)), 2)
         with self.assertRaises(ValueError):

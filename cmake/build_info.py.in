@@ -1,0 +1,4 @@
+"""Capabilities of the optional extension, generated during its native build."""
+
+HAS_HIGHS = @HAS_HIGHS@
+HAS_OPENMP = @HAS_OPENMP@

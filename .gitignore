@@ -9,6 +9,7 @@ __pycache__/
 # Python and CMake build output
 build/
 dist/
+native-dist/
 _build/
 cmake-build-*/
 CMakeFiles/
@@ -23,6 +24,7 @@ build.ninja
 *.obj
 *.a
 *.so
+*.pyd
 *.dylib
 *.dll
 *.exe

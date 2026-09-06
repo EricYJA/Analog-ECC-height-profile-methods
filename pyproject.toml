@@ -1,0 +1,68 @@
+[build-system]
+requires = ["scikit-build-core>=1.0", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "analog-ecc-heights"
+version = "0.1.0"
+authors = [{name = "Changcheng Yuan", email = "eric.yuan.cc@gmail.com"}]
+description = "Height calculations for analog error-correcting codes"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23", "scipy>=1.9"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: C++",
+  "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+[project.urls]
+Repository = "https://github.com/EricYJA/Analog-ECC-height-profile-methods"
+Issues = "https://github.com/EricYJA/Analog-ECC-height-profile-methods/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+dev = ["pytest>=7", "build>=1.2", "twine>=5"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = ["src/analog_ecc_heights", "src/solve_m_height_cpp.py"]
+# Source installations also remain Python-only unless explicitly enabled.
+wheel.cmake = false
+wheel.exclude = ["analog_ecc_heights/cpp_backend/src/**", "**/__pycache__/**"]
+cmake.build-type = "Release"
+# Opt in only the source files below; ignored research/build trees stay out.
+sdist.inclusion-mode = "explicit"
+sdist.include = [
+  "/pyproject.toml",
+  "/CMakeLists.txt",
+  "/README.md",
+  "/LICENSE*",
+  "/COPYING*",
+  "/NOTICE*",
+  "/cmake/**",
+  "/src/analog_ecc_heights/**/*.py",
+  "/src/analog_ecc_heights/py.typed",
+  "/src/analog_ecc_heights/cpp_backend/src/*.cc",
+  "/src/analog_ecc_heights/cpp_backend/src/*.hh",
+  "/src/solve_m_height_cpp.py",
+  "/tests/**/*.py",
+  "/tests/native/test_main.cc",
+  "/examples/**/*.py",
+  "/docs/**/*.md",
+]
+sdist.exclude = ["**/__pycache__/**", "**/*.pyc"]
+
+[tool.scikit-build.cmake.define]
+USE_HIGHS = "OFF"
+BUILD_TEST_MAIN = "OFF"
+SANITIZE = "OFF"
+USE_CUDA_FULL_SWEEP = "OFF"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["tests/native"]
+markers = [
+  "installation: validate built artifacts when ANALOG_ECC_TEST_WHEEL is set",
+]

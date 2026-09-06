@@ -1,0 +1,120 @@
+name: Package tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash -el {0}
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} / ${{ matrix.os }} / ${{ matrix.dependencies }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.14"]
+        dependencies: [current]
+        include:
+          - os: ubuntu-latest
+            python: "3.10"
+            dependencies: minimum
+    steps:
+      - uses: actions/checkout@v6
+      - uses: conda-incubator/setup-miniconda@v4
+        with:
+          activate-environment: analog-ecc
+          python-version: ${{ matrix.python }}
+          channels: conda-forge
+          channel-priority: strict
+          miniforge-version: latest
+      - name: Install build and test tools
+        run: |
+          conda activate analog-ecc
+          python -m pip install build pytest twine numpy scipy
+      - name: Install minimum supported numerical dependencies
+        if: matrix.dependencies == 'minimum'
+        run: |
+          conda activate analog-ecc
+          python -m pip install --only-binary=:all: numpy==1.23.0 scipy==1.9.0
+      - name: Build Python wheel and complete source distribution
+        run: |
+          conda activate analog-ecc
+          python -m build
+          python -m twine check dist/*
+          python -m pip install --no-deps dist/*.whl
+      - name: Test installed package and release artifacts
+        run: |
+          conda activate analog-ecc
+          export ANALOG_ECC_TEST_WHEEL="$(python -c 'from pathlib import Path; print(next(Path("dist").glob("*.whl")).resolve())')"
+          export ANALOG_ECC_TEST_SDIST="$(python -c 'from pathlib import Path; print(next(Path("dist").glob("*.tar.gz")).resolve())')"
+          python -m pytest -q
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.10' && matrix.dependencies == 'current'
+        with:
+          name: python-distributions
+          path: dist/*
+
+  native:
+    name: Native Linux / HiGHS ${{ matrix.highs }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        highs: ["OFF", "ON"]
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: conda-incubator/setup-miniconda@v4
+        with:
+          activate-environment: analog-ecc
+          python-version: "3.10"
+          channels: conda-forge
+          channel-priority: strict
+          miniforge-version: latest
+      - name: Install system GLPK, Eigen, and build tools
+        run: |
+          conda activate analog-ecc
+          sudo apt-get update
+          sudo apt-get install -y libglpk-dev libeigen3-dev cmake ninja-build g++
+          python -m pip install build pytest twine numpy scipy
+      - name: Build and install the system HiGHS C++ library
+        if: matrix.highs == 'ON'
+        run: |
+          conda activate analog-ecc
+          git clone --depth 1 --branch v1.11.0 https://github.com/ERGO-Code/HiGHS.git "$RUNNER_TEMP/highs-source"
+          cmake -S "$RUNNER_TEMP/highs-source" -B "$RUNNER_TEMP/highs-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DBUILD_SHARED_LIBS=ON -DBUILD_TESTING=OFF -DBUILD_CXX_EXE=OFF \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/highs-install"
+          cmake --build "$RUNNER_TEMP/highs-build" --parallel 2
+          cmake --install "$RUNNER_TEMP/highs-build"
+      - name: Build native wheel from the source distribution
+        run: |
+          conda activate analog-ecc
+          python -m build --sdist
+          python -m pip wheel --no-deps --wheel-dir native-dist dist/*.tar.gz \
+            -Cwheel.cmake=true \
+            -Ccmake.define.USE_HIGHS=${{ matrix.highs }} \
+            -Ccmake.define.CMAKE_PREFIX_PATH="$RUNNER_TEMP/highs-install"
+          python -m twine check native-dist/*
+          python -m pip install --no-deps native-dist/*.whl
+      - name: Test native package and release artifacts
+        env:
+          ANALOG_ECC_EXPECT_HIGHS: ${{ matrix.highs == 'ON' && '1' || '0' }}
+        run: |
+          conda activate analog-ecc
+          export ANALOG_ECC_TEST_WHEEL="$(python -c 'from pathlib import Path; print(next(Path("native-dist").glob("*.whl")).resolve())')"
+          export ANALOG_ECC_TEST_SDIST="$(python -c 'from pathlib import Path; print(next(Path("dist").glob("*.tar.gz")).resolve())')"
+          python -m pytest -q
+          python -m pytest -q tests/native
