@@ -69,9 +69,13 @@ int main() {
     check_close("h_m_jiang_original_lp_highs", h_m_jiang_original_lp_highs(G, m));
 #endif
 
-    check_close("h_m_roth_primal_lp", h_m_roth_primal_lp(G, m));
-    check_close("h_m_roth_primal_lp_constraint", h_m_roth_primal_lp_constraint(G, m));
-    check_close("h_m_roth_dual_lp", h_m_roth_dual_lp(G, m));
+    const double no_cap = std::numeric_limits<double>::infinity();
+    check_close("h_m_roth_primal_lp_glpk", h_m_roth_primal_lp_glpk(G, m, no_cap));
+    check_close("h_m_roth_dual_lp_glpk", h_m_roth_dual_lp_glpk(G, m, no_cap));
+#ifdef HAVE_HIGHS
+    check_close("h_m_roth_primal_lp_highs", h_m_roth_primal_lp_highs(G, m, no_cap));
+    check_close("h_m_roth_dual_lp_highs", h_m_roth_dual_lp_highs(G, m, no_cap));
+#endif
     check_close("h_m_roth_primal_combinatorial", h_m_roth_primal_combinatorial(G, m));
     check_close("h_m_roth_mds_combinatorial", h_m_roth_mds_combinatorial(G, m));
     check_close("h_m_roth_mds_combinatorial_omp", h_m_roth_mds_combinatorial_omp(G, m));

@@ -43,6 +43,32 @@ HiGHS methods are exposed only when HiGHS support is built.
 These names replace the previous Jiang API. The ordinary simplified methods
 and additional-constraint variant have been removed.
 
+## Roth LP API
+
+- `h_m_roth_primal_lp_glpk(G, m, early_quit_threshold)`
+- `h_m_roth_dual_lp_glpk(G, m, early_quit_threshold)`
+- `h_m_roth_primal_lp_highs(G, m, early_quit_threshold)`
+- `h_m_roth_dual_lp_highs(G, m, early_quit_threshold)`
+
+All four return `min(h_m, early_quit_threshold)`; pass `float("inf")` for
+the full height. Early exit happens after a completed LP solve. For `m=0`,
+the result is `min(1, early_quit_threshold)`. NaN thresholds are rejected.
+HiGHS methods are available only in builds with HiGHS support. Each method
+uses its named backend without fallback. These replace the old Roth LP APIs,
+including the dominance-constraint variant.
+
+Jiang original and Roth primal/dual follow the simplified Jiang LP object
+lifecycle: GLPK creates and deletes each problem; HiGHS reuses its solver and
+allocated model buffers within a call, clearing and reloading each LP without
+preserving its simplex basis. All GLPK calls share one mutex.
+
+All GLPK methods enumerate cases sequentially and incrementally, use the same
+Eigen-to-GLPK row-loading path, and reuse row scratch arrays within each LP.
+They check simplex return codes and require optimal status for finite results.
+The simplified GLPK method tracks only the scalar height and stops generating
+cases when its threshold is exceeded. It requires finite input,
+`1 <= m <= min(30, n-1)`, and a non-NaN threshold.
+
 ## References
 
 1. Ron M. Roth, “[Analog Error-Correcting Codes](https://doi.org/10.1109/TIT.2020.2977918),” *IEEE Transactions on Information Theory*, 66(7), 4075–4088, 2020.

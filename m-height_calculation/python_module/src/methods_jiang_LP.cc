@@ -1,4 +1,5 @@
 #include "methods.hh"
+#include "lp_workspace.hh"
 
 #ifdef HAVE_HIGHS
 #include <highs/Highs.h> 
@@ -23,236 +24,66 @@
 #include <omp.h>
 #endif
 
-// GLPK is not thread-safe; serialize all GLPK API calls.
-static std::mutex glpk_mutex;
-
-struct Task {
-    int a;
-    std::vector<int> X;
-    std::vector<int> Y;
-};
-
-
-static std::tuple<double, Eigen::VectorXd, std::tuple<int, std::vector<int>, std::vector<int>>>
-h_m_jiang_simplified_lp_glpk_early_quit_full(const Eigen::MatrixXd &G, int m, double early_quit_threshold)
+// Enumerate (a, X) lazily: X contains m-1 coordinates other than a,
+// and Y is the complement of {a} union X. GLPK solves remain sequential.
+static double jiang_simplified_glpk_value(
+    const Eigen::MatrixXd& G, int m, double early_quit_threshold)
 {
-    if (G.rows() == 0 || G.cols() == 0) {
-        throw std::runtime_error("Error: Received empty matrix!");
-    }
-    if (m <= 0 || m > 30) {
-        throw std::runtime_error("Error: m out of supported range (1..30).");
-    }
+    const int k = G.rows(), n = G.cols();
+    if (k == 0 || n == 0 || !G.allFinite())
+        throw std::invalid_argument("G must be a finite, nonempty matrix.");
+    if (m < 1 || m >= n || m > 30)
+        throw std::invalid_argument("Simplified Jiang GLPK requires 1 <= m <= min(30, n-1).");
+    if (std::isnan(early_quit_threshold))
+        throw std::invalid_argument("early_quit_threshold must not be NaN.");
 
-    const int k = (int)G.rows();
-    const int n = (int)G.cols();
+    m_height_lp::Workspace lp(m - 1 + 2 * (n - m), k,
+                             m_height_lp::Backend::Glpk, true);
+    lp.upper.setOnes();
+    lp.upper.head(m - 1).setZero();
+    double best = -std::numeric_limits<double>::infinity();
+    bool stop = false;
 
-    double bestHeight = -std::numeric_limits<double>::infinity();
-    Eigen::VectorXd bestU = Eigen::VectorXd::Zero(k);
-    std::tuple<int, std::vector<int>, std::vector<int>> bestParams;
-
-    std::vector<int> allIndices(n);
-    std::iota(allIndices.begin(), allIndices.end(), 0);
-
-    std::vector<Task> tasks;
-#pragma omp parallel
-    {
-        std::vector<Task> localTasks;
-
-#pragma omp for schedule(dynamic)
-        for (int a = 0; a < n; ++a) {
-            std::vector<int> rem = allIndices;
-            rem.erase(std::remove(rem.begin(), rem.end(), a), rem.end());
-
-            std::vector<std::vector<int>> combos;
-            std::function<void(int,int,std::vector<int>&)> combGen =
-                [&](int offset, int r, std::vector<int>& tmp) {
-                    if (r == 0) { combos.push_back(tmp); return; }
-                    for (int i = offset; i <= (int)rem.size() - r; ++i) {
-                        tmp.push_back(rem[i]);
-                        combGen(i + 1, r - 1, tmp);
-                        tmp.pop_back();
-                    }
-                };
-            std::vector<int> tmp;
-            combGen(0, m - 1, tmp);
-
-            for (const auto &X : combos) {
-                std::vector<int> Y;
-                Y.reserve(rem.size() - X.size());
-                for (int idx : rem)
-                    if (std::find(X.begin(), X.end(), idx) == X.end()) Y.push_back(idx);
-
-                Task t;
-                t.a = a;
-                t.X = X;
-                t.Y = std::move(Y);
-                localTasks.push_back(std::move(t));
-            }
-        }
-
-#pragma omp critical
-        tasks.insert(tasks.end(), localTasks.begin(), localTasks.end());
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(glpk_mutex);
-        glp_term_out(GLP_OFF);
-    }
-
-    std::atomic<bool> quitEarly{false};
-    std::atomic<bool> thresholdReached{false};
-
-    std::atomic<bool> fatal{false};
-    std::string fatal_msg;
-    std::mutex fatal_mtx;
-
-#pragma omp parallel shared(quitEarly, fatal)
-    {
-        double localBestHeight = -std::numeric_limits<double>::infinity();
-        Eigen::VectorXd localBestU = Eigen::VectorXd::Zero(k);
-        std::tuple<int, std::vector<int>, std::vector<int>> localBestParams;
-
-#pragma omp for schedule(dynamic)
-        for (int ti = 0; ti < (int)tasks.size(); ++ti) {
-            if (quitEarly.load(std::memory_order_relaxed)) continue;
-            if (fatal.load(std::memory_order_relaxed)) continue;
-
-            const auto &T = tasks[ti];
-            const int a = T.a;
-            const auto &X = T.X;
-            const auto &Y = T.Y;
-
-            if ((int)X.size() != m - 1) {
-                fatal.store(true, std::memory_order_relaxed);
-                std::lock_guard<std::mutex> lk(fatal_mtx);
-                fatal_msg = "Invariant violated: |X| != m-1.";
-                continue;
-            }
-
-            const int totalRows = (int)X.size() + 2*(int)Y.size();
-
-            int status = 0;
-            double objectiveValue = -std::numeric_limits<double>::infinity();
-            Eigen::VectorXd u;
-
-            {
-                std::lock_guard<std::mutex> lock(glpk_mutex);
-
-                glp_prob *lp = glp_create_prob();
-                if (!lp) {
-                    fatal.store(true, std::memory_order_relaxed);
-                    std::lock_guard<std::mutex> lk(fatal_mtx);
-                    fatal_msg = "glp_create_prob failed.";
-                    continue;
+    for (int a = 0; a < n && !stop; ++a) {
+        lp.cost = G.col(a);
+        std::vector<int> remaining, X;
+        for (int j = 0; j < n; ++j)
+            if (j != a) remaining.push_back(j);
+        std::function<void(int, int)> enumerate = [&](int start, int need) {
+            if (stop) return;
+            if (need != 0) {
+                for (int t = start; t <= static_cast<int>(remaining.size()) - need && !stop; ++t) {
+                    X.push_back(remaining[t]);
+                    enumerate(t + 1, need - 1);
+                    X.pop_back();
                 }
-
-                glp_set_obj_dir(lp, GLP_MAX);
-                glp_add_rows(lp, totalRows);
-                glp_add_cols(lp, k);
-
-                for (int col = 1; col <= k; ++col)
-                    glp_set_col_bnds(lp, col, GLP_FR, 0.0, 0.0);
-
-                for (int ii = 0; ii < k; ++ii)
-                    glp_set_obj_coef(lp, ii + 1, G(ii, a));
-
-                int rowIndex = 1;
-
-                for (int jx : X) {
-                    std::vector<int> idx(k + 1);
-                    std::vector<double> val(k + 1);
-                    for (int col = 0; col < k; ++col) {
-                        idx[col + 1] = col + 1;
-                        val[col + 1] = G(col, jx) - G(col, a);
-                    }
-                    glp_set_row_bnds(lp, rowIndex, GLP_UP, 0.0, 0.0);
-                    glp_set_mat_row(lp, rowIndex, k, idx.data(), val.data());
-                    rowIndex++;
-                }
-
-                for (int jy : Y) {
-                    {
-                        std::vector<int> idx(k + 1);
-                        std::vector<double> val(k + 1);
-                        for (int col = 0; col < k; ++col) {
-                            idx[col + 1] = col + 1;
-                            val[col + 1] = G(col, jy);
-                        }
-                        glp_set_row_bnds(lp, rowIndex, GLP_UP, 0.0, 1.0);
-                        glp_set_mat_row(lp, rowIndex, k, idx.data(), val.data());
-                        rowIndex++;
-                    }
-                    {
-                        std::vector<int> idx(k + 1);
-                        std::vector<double> val(k + 1);
-                        for (int col = 0; col < k; ++col) {
-                            idx[col + 1] = col + 1;
-                            val[col + 1] = -G(col, jy);
-                        }
-                        glp_set_row_bnds(lp, rowIndex, GLP_UP, 0.0, 1.0);
-                        glp_set_mat_row(lp, rowIndex, k, idx.data(), val.data());
-                        rowIndex++;
-                    }
-                }
-
-                glp_smcp smcp;
-                glp_init_smcp(&smcp);
-                smcp.msg_lev = GLP_MSG_OFF;
-
-                glp_simplex(lp, &smcp);
-                status = glp_get_status(lp);
-
-                if (status == GLP_OPT || status == GLP_FEAS) {
-                    objectiveValue = glp_get_obj_val(lp);
-                    u.resize(k);
-                    for (int ii = 0; ii < k; ++ii) u[ii] = glp_get_col_prim(lp, ii + 1);
-                } else if (status == GLP_UNBND) {
-                    objectiveValue = std::numeric_limits<double>::infinity();
-                    u = Eigen::VectorXd::Zero(k);
-                }
-
-                glp_delete_prob(lp);
+                return;
             }
 
-            if (fatal.load(std::memory_order_relaxed)) continue;
+            int row = 0;
+            // c_x <= c_a for x in X.
+            for (int x : X)
+                lp.A.row(row++) = (G.col(x) - G.col(a)).transpose();
+            // -1 <= c_y <= 1 for y in Y.
+            for (int y : remaining) {
+                if (std::binary_search(X.begin(), X.end(), y)) continue;
+                lp.A.row(row++) = G.col(y).transpose();
+                lp.A.row(row++) = -G.col(y).transpose();
+            }
 
-            bool hitThreshold = objectiveValue > early_quit_threshold;
-            bool isInf = objectiveValue == std::numeric_limits<double>::infinity();
-
-            if (objectiveValue > localBestHeight) {
-                localBestHeight = objectiveValue;
-                if (u.size() == k) localBestU = u;
-                localBestParams = std::make_tuple(a, X, Y);
-            }
-            if (hitThreshold) {
-                thresholdReached.store(true, std::memory_order_relaxed);
-            }
-            if (hitThreshold || isInf) {
-                quitEarly.store(true, std::memory_order_relaxed);
-            }
-        }
-
-#pragma omp critical
-        {
-            if (localBestHeight > bestHeight) {
-                bestHeight = localBestHeight;
-                bestU = localBestU;
-                bestParams = localBestParams;
-            }
-        }
+            const auto result = lp.solve();
+            if (result.status == m_height_lp::Status::Optimal)
+                best = std::max(best, result.value);
+            else if (result.status == m_height_lp::Status::Unbounded)
+                best = std::numeric_limits<double>::infinity();
+            else
+                throw std::runtime_error("Simplified Jiang LP unexpectedly infeasible (u=0 is feasible).");
+            stop = best > early_quit_threshold || std::isinf(best);
+        };
+        enumerate(0, m - 1);
     }
-
-    if (fatal.load(std::memory_order_relaxed)) {
-        throw std::runtime_error(fatal_msg.empty() ? "Fatal error in OpenMP region." : fatal_msg);
-    }
-
-    if (thresholdReached.load(std::memory_order_relaxed)) {
-        bestHeight = early_quit_threshold;
-    }
-
-    return {bestHeight, bestU, bestParams};
+    return std::min(best, early_quit_threshold);
 }
-
 
 #ifdef HAVE_HIGHS
 static std::tuple<double, Eigen::VectorXd, std::tuple<int, std::vector<int>, std::vector<int>>>
@@ -583,12 +414,10 @@ h_m_jiang_simplified_lp_highs_early_quit_full(const Eigen::MatrixXd& G,
 
     if (fatal.load(std::memory_order_acquire)) {
         if (!fatal_msg.empty() && fatal_msg.rfind("HiGHS:", 0) == 0) {
-            auto glpk_res = h_m_jiang_simplified_lp_glpk_early_quit_full(G, m, early_quit_threshold);
-            double& fallback_height = std::get<0>(glpk_res);
-            if (fallback_height > early_quit_threshold) {
-                fallback_height = early_quit_threshold;
-            }
-            return glpk_res;
+            const double value = jiang_simplified_glpk_value(G, m, early_quit_threshold);
+            // The public API returns only the height; GLPK no longer collects
+            // a maximizing vector or subset metadata.
+            return {value, Eigen::VectorXd::Zero(k), {}};
         }
         throw std::runtime_error(fatal_msg.empty() ? "Fatal error in OpenMP region (HiGHS early quit)." : fatal_msg);
     }
@@ -604,7 +433,7 @@ h_m_jiang_simplified_lp_highs_early_quit_full(const Eigen::MatrixXd& G,
 double h_m_jiang_simplified_lp_glpk_early_quit(const Eigen::MatrixXd& G,
                                     int m,
                                     double early_quit_threshold) {
-    return std::get<0>(h_m_jiang_simplified_lp_glpk_early_quit_full(G, m, early_quit_threshold));
+    return jiang_simplified_glpk_value(G, m, early_quit_threshold);
 }
 
 #ifdef HAVE_HIGHS
@@ -617,90 +446,7 @@ double h_m_jiang_simplified_lp_highs_early_quit(const Eigen::MatrixXd& G,
 
 
 namespace {
-enum class OriginalBackend { Glpk, Highs };
-
-// Both backends receive identical coefficients. Only equality_row is an
-// equality (c_b = 1); every other constraint is an upper bound.
-double solve_original_lp(const Eigen::MatrixXd& A, const Eigen::VectorXd& bounds,
-                         const Eigen::VectorXd& cost, int equality_row,
-                         OriginalBackend backend) {
-    const int rows = A.rows(), k = A.cols();
-    if (backend == OriginalBackend::Glpk) {
-        std::lock_guard<std::mutex> lock(glpk_mutex);
-        std::unique_ptr<glp_prob, decltype(&glp_delete_prob)> lp(
-            glp_create_prob(), &glp_delete_prob);
-        if (!lp) throw std::runtime_error("GLPK original LP: allocation failed.");
-        glp_set_obj_dir(lp.get(), GLP_MAX);
-        glp_add_rows(lp.get(), rows);
-        glp_add_cols(lp.get(), k);
-        for (int j = 0; j < k; ++j) {
-            glp_set_col_bnds(lp.get(), j + 1, GLP_FR, 0.0, 0.0);
-            glp_set_obj_coef(lp.get(), j + 1, cost[j]);
-        }
-        std::vector<int> indices(k + 1);
-        std::vector<double> values(k + 1);
-        for (int j = 0; j < k; ++j) indices[j + 1] = j + 1;
-        for (int row = 0; row < rows; ++row) {
-            glp_set_row_bnds(lp.get(), row + 1,
-                            row == equality_row ? GLP_FX : GLP_UP,
-                            bounds[row], bounds[row]);
-            for (int j = 0; j < k; ++j) values[j + 1] = A(row, j);
-            glp_set_mat_row(lp.get(), row + 1, k, indices.data(), values.data());
-        }
-        glp_smcp options;
-        glp_init_smcp(&options);
-        options.msg_lev = GLP_MSG_OFF;
-        const int result = glp_simplex(lp.get(), &options);
-        if (result != 0)
-            throw std::runtime_error("GLPK original LP: simplex failed: " + std::to_string(result));
-        const int status = glp_get_status(lp.get());
-        if (status == GLP_OPT) return glp_get_obj_val(lp.get());
-        if (status == GLP_NOFEAS) return -std::numeric_limits<double>::infinity();
-        if (status == GLP_UNBND) return std::numeric_limits<double>::infinity();
-        throw std::runtime_error("GLPK original LP: unexpected status: " + std::to_string(status));
-    }
-#ifdef HAVE_HIGHS
-    Highs highs;
-    highs.setOptionValue("output_flag", false);
-    highs.setOptionValue("threads", 1);
-    highs.setOptionValue("solver", "simplex");
-    highs.setOptionValue("simplex_strategy", 0);
-    highs.setOptionValue("presolve", "off");
-    highs.setOptionValue("scaling", "off");
-    constexpr double inf = 1e20;
-    highs.setOptionValue("infinite_bound", inf);
-    highs.setOptionValue("infinite_cost", inf);
-    HighsLp lp;
-    lp.num_col_ = k;
-    lp.num_row_ = rows;
-    lp.sense_ = ObjSense::kMaximize;
-    lp.col_cost_.assign(cost.data(), cost.data() + k);
-    lp.col_lower_.assign(k, -inf);
-    lp.col_upper_.assign(k, inf);
-    lp.row_lower_.assign(rows, -inf);
-    lp.row_lower_[equality_row] = bounds[equality_row];
-    lp.row_upper_.assign(bounds.data(), bounds.data() + rows);
-    lp.a_matrix_.format_ = MatrixFormat::kRowwise;
-    lp.a_matrix_.start_.resize(rows + 1);
-    lp.a_matrix_.index_.resize(rows * k);
-    lp.a_matrix_.value_.resize(rows * k);
-    for (int row = 0; row <= rows; ++row) lp.a_matrix_.start_[row] = row * k;
-    for (int row = 0; row < rows; ++row)
-        for (int j = 0; j < k; ++j) {
-            lp.a_matrix_.index_[row * k + j] = j;
-            lp.a_matrix_.value_[row * k + j] = A(row, j);
-        }
-    if (highs.passModel(lp) != HighsStatus::kOk || highs.run() != HighsStatus::kOk)
-        throw std::runtime_error("HiGHS original LP: solve failed.");
-    const auto status = highs.getModelStatus();
-    if (status == HighsModelStatus::kOptimal) return highs.getInfo().objective_function_value;
-    if (status == HighsModelStatus::kInfeasible) return -std::numeric_limits<double>::infinity();
-    if (status == HighsModelStatus::kUnbounded) return std::numeric_limits<double>::infinity();
-    throw std::runtime_error("HiGHS original LP: unexpected status: " + highs.modelStatusToString(status));
-#else
-    throw std::runtime_error("Jiang original HiGHS LP requires HAVE_HIGHS.");
-#endif
-}
+using OriginalBackend = m_height_lp::Backend;
 
 double jiang_original_lp(const Eigen::MatrixXd& G, int m, OriginalBackend backend) {
     const int k = G.rows(), n = G.cols();
@@ -714,8 +460,11 @@ double jiang_original_lp(const Eigen::MatrixXd& G, int m, OriginalBackend backen
 
     const int rows = 2 * (m - 1) + 1 + 2 * (n - m - 1);
     const int equality_row = 2 * (m - 1);
-    Eigen::MatrixXd A(rows, k);
-    Eigen::VectorXd bounds(rows), cost(k);
+    m_height_lp::Workspace lp(rows, k, backend, true);
+    auto& A = lp.A;
+    auto& bounds = lp.upper;
+    auto& cost = lp.cost;
+    lp.lower[equality_row] = 1.0;
     double best = 0.0;
     for (int a = 0; a < n; ++a) {
         for (int b = 0; b < n; ++b) {
@@ -755,7 +504,12 @@ double jiang_original_lp(const Eigen::MatrixXd& G, int m, OriginalBackend backen
                         A.row(row) = -G.col(j).transpose();
                         bounds[row++] = 1.0;
                     }
-                    best = std::max(best, solve_original_lp(A, bounds, cost, equality_row, backend));
+                    const auto result = lp.solve();
+                    if (result.status == m_height_lp::Status::Optimal)
+                        best = std::max(best, result.value);
+                    else if (result.status == m_height_lp::Status::Unbounded)
+                        best = std::numeric_limits<double>::infinity();
+                    // Infeasible sign/order cases contribute nothing.
                 }
             };
             enumerate(0, m - 1);

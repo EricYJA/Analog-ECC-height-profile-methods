@@ -69,44 +69,56 @@ h_m_jiang_original_lp_highs_np(py::array_t<double, py::array::c_style | py::arra
 }
 #endif // HAVE_HIGHS
 
-static double h_m_roth_primal_lp_np(py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
-                                    int m)
+static double h_m_roth_primal_lp_glpk_np(
+    py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
+    int m, double early_quit_threshold)
 {
-    py::buffer_info info = G_in.request();
-    if (info.ndim != 2) throw std::runtime_error("G must be 2D");
-    const int k = (int)info.shape[0], n = (int)info.shape[1];
-
+    const auto info = G_in.request();
+    if (info.ndim != 2) throw std::invalid_argument("G must be 2D");
     using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
-    Eigen::MatrixXd G_cm = G_rm;
-    return h_m_roth_primal_lp(G_cm, m);
+    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), info.shape[0], info.shape[1]);
+    const Eigen::MatrixXd G = G_rm;
+    return h_m_roth_primal_lp_glpk(G, m, early_quit_threshold);
 }
 
-static double h_m_roth_primal_lp_constraint_np(py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
-                                               int m)
+static double h_m_roth_dual_lp_glpk_np(
+    py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
+    int m, double early_quit_threshold)
 {
-    py::buffer_info info = G_in.request();
-    if (info.ndim != 2) throw std::runtime_error("G must be 2D");
-    const int k = (int)info.shape[0], n = (int)info.shape[1];
-
+    const auto info = G_in.request();
+    if (info.ndim != 2) throw std::invalid_argument("G must be 2D");
     using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
-    Eigen::MatrixXd G_cm = G_rm;
-    return h_m_roth_primal_lp_constraint(G_cm, m);
+    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), info.shape[0], info.shape[1]);
+    const Eigen::MatrixXd G = G_rm;
+    return h_m_roth_dual_lp_glpk(G, m, early_quit_threshold);
 }
 
-static double h_m_roth_dual_lp_np(py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
-                                  int m)
+#ifdef HAVE_HIGHS
+static double h_m_roth_primal_lp_highs_np(
+    py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
+    int m, double early_quit_threshold)
 {
-    py::buffer_info info = G_in.request();
-    if (info.ndim != 2) throw std::runtime_error("G must be 2D");
-    const int k = (int)info.shape[0], n = (int)info.shape[1];
-
+    const auto info = G_in.request();
+    if (info.ndim != 2) throw std::invalid_argument("G must be 2D");
     using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), k, n);
-    Eigen::MatrixXd G_cm = G_rm;
-    return h_m_roth_dual_lp(G_cm, m);
+    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), info.shape[0], info.shape[1]);
+    const Eigen::MatrixXd G = G_rm;
+    return h_m_roth_primal_lp_highs(G, m, early_quit_threshold);
 }
+
+static double h_m_roth_dual_lp_highs_np(
+    py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
+    int m, double early_quit_threshold)
+{
+    const auto info = G_in.request();
+    if (info.ndim != 2) throw std::invalid_argument("G must be 2D");
+    using RowMat = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+    Eigen::Map<const RowMat> G_rm(static_cast<double*>(info.ptr), info.shape[0], info.shape[1]);
+    const Eigen::MatrixXd G = G_rm;
+    return h_m_roth_dual_lp_highs(G, m, early_quit_threshold);
+}
+
+#endif
 
 static double h_m_roth_primal_combinatorial_np(
     py::array_t<double, py::array::c_style | py::array::forcecast> G_in,
@@ -277,15 +289,20 @@ PYBIND11_MODULE(solve_m_height_cpp, m) {
           "Solve m-height using Jiang original LP formulation with HiGHS backend");
 #endif // HAVE_HIGHS
 
-    m.def("h_m_roth_primal_lp", &h_m_roth_primal_lp_np,
-          py::arg("G"), py::arg("m"),
-          "Exact h_m(C) via primal LP characterization.");
-    m.def("h_m_roth_primal_lp_constraint", &h_m_roth_primal_lp_constraint_np,
-          py::arg("G"), py::arg("m"),
-          "Exact h_m(C) via primal LP characterization with dominance constraints inside S.");
-    m.def("h_m_roth_dual_lp", &h_m_roth_dual_lp_np,
-          py::arg("G"), py::arg("m"),
-          "Exact h_m(C) via dual LP characterization.");
+    m.def("h_m_roth_primal_lp_glpk", &h_m_roth_primal_lp_glpk_np,
+          py::arg("G"), py::arg("m"), py::arg("early_quit_threshold"),
+          "Roth primal LP with glpk; returns min(h_m, threshold). Use infinity for a full sweep.");
+    m.def("h_m_roth_dual_lp_glpk", &h_m_roth_dual_lp_glpk_np,
+          py::arg("G"), py::arg("m"), py::arg("early_quit_threshold"),
+          "Roth dual LP with glpk; returns min(h_m, threshold). Use infinity for a full sweep.");
+#ifdef HAVE_HIGHS
+    m.def("h_m_roth_primal_lp_highs", &h_m_roth_primal_lp_highs_np,
+          py::arg("G"), py::arg("m"), py::arg("early_quit_threshold"),
+          "Roth primal LP with highs; returns min(h_m, threshold). Use infinity for a full sweep.");
+    m.def("h_m_roth_dual_lp_highs", &h_m_roth_dual_lp_highs_np,
+          py::arg("G"), py::arg("m"), py::arg("early_quit_threshold"),
+          "Roth dual LP with highs; returns min(h_m, threshold). Use infinity for a full sweep.");
+#endif
     m.def("h_m_roth_primal_combinatorial", &h_m_roth_primal_combinatorial_np,
           py::arg("G"), py::arg("m"), py::arg("tol") = 1e-10,
           "Exact h_m(C) via primal combinatorial characterization.");
