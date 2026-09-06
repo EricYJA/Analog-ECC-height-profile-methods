@@ -6,31 +6,17 @@ One package provides a NumPy/SciPy implementation by default and optional native
 
 ## Install
 
-Requires Python 3.10 or later. Pip installs NumPy >=1.23 and SciPy >=1.9 automatically. With Python and Git installed, start from a fresh checkout:
+Requires Python 3.10 or later. Install the published package from [PyPI](https://pypi.org/project/analog-ecc-heights/):
 
 ```bash
-git clone https://github.com/EricYJA/Analog-ECC-height-profile-methods.git
-cd Analog-ECC-height-profile-methods
-python -m venv .venv
+python -m pip install analog-ecc-heights
 ```
 
-If your Python command is `python3` or `py`, use it to create the environment. Activate it using the command for your shell:
+Pip installs NumPy >=1.23 and SciPy >=1.9 automatically. Version [0.1.0](https://pypi.org/project/analog-ecc-heights/0.1.0/) is available as a Python wheel and source archive.
 
-| Platform / shell | Activation command |
-| --- | --- |
-| Linux or macOS / Bash or Zsh | `source .venv/bin/activate` |
-| Windows / PowerShell | `.\.venv\Scripts\Activate.ps1` |
-| Windows / Command Prompt | `.venv\Scripts\activate.bat` |
+Use an existing Python environment or follow the [environment setup guide](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/docs/installation.md#choose-a-python-environment) to create a virtual environment or use Conda. If your Python command is `python3` or `py`, use it in place of `python`.
 
-Then install into the active environment:
-
-```bash
-python -m pip install .
-```
-
-An existing Python environment also works. See [environment setup](docs/installation.md#choose-a-python-environment) for details and the optional Conda workflow.
-
-The default installation does not invoke CMake or require a compiler, Eigen, GLPK, or a separately installed HiGHS library. Native support is an optional source build of this same distribution; see [installation](docs/installation.md).
+The default installation does not invoke CMake or require a compiler, Eigen, GLPK, or a separately installed HiGHS library. Native support is an optional source build of this same distribution; see [native installation](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/docs/installation.md#install-optional-native-backends). To install from a checkout, see [source installation](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/docs/installation.md#get-the-source).
 
 ## Use
 
@@ -69,9 +55,9 @@ An unavailable backend raises an installation error. Unsupported combinations ra
 
 ## Documentation and examples
 
-- [Installation and native builds](docs/installation.md)
-- [API, backend selection, and numerical behavior](docs/api.md)
-- Runnable examples: [basic usage](examples/basic_usage.py), [height profiles](examples/height_profile.py), and [backend comparison](examples/compare_backends.py)
+- [Installation and native builds](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/docs/installation.md)
+- [API, backend selection, and numerical behavior](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/docs/api.md)
+- Runnable examples: [basic usage](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/examples/basic_usage.py), [height profiles](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/examples/height_profile.py), and [backend comparison](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/examples/compare_backends.py)
 
 ## License
 
