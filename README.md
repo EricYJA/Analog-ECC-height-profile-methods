@@ -31,9 +31,9 @@ print(h_m)
 ## Jiang LP API
 
 - `h_m_jiang_simplified_lp_glpk_early_quit(G, m, early_quit_threshold)`
-- `h_m_jiang_simplified_lp_highs_early_quit(G, m, early_quit_threshold)`
+- `h_m_jiang_simplified_lp_highs_early_quit(G, m, early_quit_threshold, num_threads=16)`
 - `h_m_jiang_original_lp_glpk(G, m)`
-- `h_m_jiang_original_lp_highs(G, m)`
+- `h_m_jiang_original_lp_highs(G, m, num_threads=16)`
 
 The simplified methods cap the result at the supplied threshold. Pass
 `float("inf")` to compute the full height. Both original methods use the same
@@ -47,8 +47,8 @@ and additional-constraint variant have been removed.
 
 - `h_m_roth_primal_lp_glpk(G, m, early_quit_threshold)`
 - `h_m_roth_dual_lp_glpk(G, m, early_quit_threshold)`
-- `h_m_roth_primal_lp_highs(G, m, early_quit_threshold)`
-- `h_m_roth_dual_lp_highs(G, m, early_quit_threshold)`
+- `h_m_roth_primal_lp_highs(G, m, early_quit_threshold, num_threads=16)`
+- `h_m_roth_dual_lp_highs(G, m, early_quit_threshold, num_threads=16)`
 
 All four return `min(h_m, early_quit_threshold)`; pass `float("inf")` for
 the full height. Early exit happens after a completed LP solve. For `m=0`,
@@ -68,6 +68,27 @@ They check simplex return codes and require optimal status for finite results.
 The simplified GLPK method tracks only the scalar height and stops generating
 cases when its threshold is exceeded. It requires finite input,
 `1 <= m <= min(30, n-1)`, and a non-NaN threshold.
+
+## HiGHS execution
+
+All four HiGHS APIs accept `num_threads=16`, controlling OpenMP workers.
+Each worker owns one reusable solver and direct row-wise `HighsLp` buffers;
+each individual solve uses single-threaded simplex. `num_threads=1` executes
+a serial loop without an OpenMP region. Positive thread counts are required;
+builds without OpenMP fall back to serial execution.
+
+Work is generated in bounded batches (at most four cases per requested worker),
+with dynamic scheduling. Roth groups objectives sharing a complement matrix.
+Threshold checks occur after completed solves; already-running LPs may finish.
+Original Jiang has no threshold parameter. All HiGHS paths check solver options
+and statuses and never fall back to GLPK. Presolve and simplex scaling are off.
+
+C-contiguous float64 NumPy inputs are viewed without an input-matrix copy.
+Other dtypes/layouts are converted by the Python binding as needed. LP coefficients
+are constructed directly in the HiGHS arrays; no intermediate Eigen LP matrix
+is used. HiGHS may still copy the model internally when loading it.
+
+Sources are `methods_jiang_lp.cc` and `methods_roth_lp.cc`.
 
 ## References
 

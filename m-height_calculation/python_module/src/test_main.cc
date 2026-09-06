@@ -1,4 +1,7 @@
 #include <Eigen/Dense>
+#include <algorithm>
+#include <functional>
+#include <string>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -8,6 +11,19 @@
 #include "methods.hh"
 
 int main() {
+#ifdef HAVE_HIGHS
+    // The Python bridge uses this strided map. Ref must keep the same storage
+    // address rather than silently materializing a column-major input copy.
+    const double numpy_data[] = {1., 0., 1., 0., 1., 1.};
+    using InputStride = Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic>;
+    Eigen::Map<const Eigen::MatrixXd, 0, InputStride> numpy_view(
+        numpy_data, 2, 3, InputStride(1, 3));
+    LpInput input_ref(numpy_view);
+    if (input_ref.data() != numpy_data || input_ref(1, 1) != 1. ||
+        input_ref(0, 1) != 0.) {
+        throw std::runtime_error("NumPy LP input view must not copy or transpose data.");
+    }
+#endif
     auto make_matrix = [](int rows, int cols, const std::vector<double>& values) {
         if (static_cast<int>(values.size()) != rows * cols) {
             throw std::runtime_error("Invalid matrix data length.");
@@ -62,20 +78,72 @@ int main() {
         throw std::runtime_error(std::string(name) + " must reject the invalid input.");
     };
 
-    check_close("h_m_jiang_original_lp_glpk", h_m_jiang_original_lp_glpk(G, m));
-    check_close("h_m_jiang_simplified_lp_glpk_early_quit", h_m_jiang_simplified_lp_glpk_early_quit(G, m, std::numeric_limits<double>::infinity()));
-#ifdef HAVE_HIGHS
-    check_close("h_m_jiang_simplified_lp_highs_early_quit", h_m_jiang_simplified_lp_highs_early_quit(G, m, std::numeric_limits<double>::infinity()));
-    check_close("h_m_jiang_original_lp_highs", h_m_jiang_original_lp_highs(G, m));
-#endif
-
     const double no_cap = std::numeric_limits<double>::infinity();
-    check_close("h_m_roth_primal_lp_glpk", h_m_roth_primal_lp_glpk(G, m, no_cap));
-    check_close("h_m_roth_dual_lp_glpk", h_m_roth_dual_lp_glpk(G, m, no_cap));
+    // Reuse the existing mathematical cases for every LP implementation.
+    // Original Jiang has no threshold API; the other three formulations do.
+    auto check_lp_case = [&](const char* case_name, const Eigen::MatrixXd& matrix,
+                             int index, double expected) {
+        struct LpMethod {
+            std::string name;
+            std::function<double(double)> solve;
+            bool supports_cap;
+        };
+        std::vector<LpMethod> methods = {
+            {"h_m_jiang_original_lp_glpk",
+             [&](double) { return h_m_jiang_original_lp_glpk(matrix, index); }, false},
+            {"h_m_jiang_simplified_lp_glpk_early_quit",
+             [&](double cap) { return h_m_jiang_simplified_lp_glpk_early_quit(matrix, index, cap); }, true},
+            {"h_m_roth_primal_lp_glpk",
+             [&](double cap) { return h_m_roth_primal_lp_glpk(matrix, index, cap); }, true},
+            {"h_m_roth_dual_lp_glpk",
+             [&](double cap) { return h_m_roth_dual_lp_glpk(matrix, index, cap); }, true},
+        };
 #ifdef HAVE_HIGHS
-    check_close("h_m_roth_primal_lp_highs", h_m_roth_primal_lp_highs(G, m, no_cap));
-    check_close("h_m_roth_dual_lp_highs", h_m_roth_dual_lp_highs(G, m, no_cap));
+        for (int threads : {1, 16}) {
+            const std::string suffix = " (num_threads=" + std::to_string(threads) + ")";
+            methods.push_back({"h_m_jiang_original_lp_highs" + suffix,
+                [&, threads](double) { return h_m_jiang_original_lp_highs(matrix, index, threads); }, false});
+            methods.push_back({"h_m_jiang_simplified_lp_highs_early_quit" + suffix,
+                [&, threads](double cap) { return h_m_jiang_simplified_lp_highs_early_quit(matrix, index, cap, threads); }, true});
+            methods.push_back({"h_m_roth_primal_lp_highs" + suffix,
+                [&, threads](double cap) { return h_m_roth_primal_lp_highs(matrix, index, cap, threads); }, true});
+            methods.push_back({"h_m_roth_dual_lp_highs" + suffix,
+                [&, threads](double cap) { return h_m_roth_dual_lp_highs(matrix, index, cap, threads); }, true});
+        }
 #endif
+        std::cout << "\nLP case: " << case_name << " (m=" << index << ")" << std::endl;
+        for (const auto& method : methods) {
+            std::vector<double> caps = {no_cap};
+            if (method.supports_cap) {
+                if (std::isfinite(expected)) {
+                    // Below, at, and above the height: exercise both early
+                    // stopping and completing a sweep without reaching a cap.
+                    caps.insert(caps.end(), {expected / 2.0, expected, expected * 2.0});
+                } else {
+                    caps.push_back(1.5); // unbounded height must still be capped
+                }
+            }
+            for (double cap : caps) {
+                const double target = std::min(expected, cap);
+                const double value = method.solve(cap);
+                std::cout << "  " << method.name << " cap=" << cap
+                          << " -> " << value << std::endl;
+                // A relative tolerance accommodates the larger 10-column
+                // references; explicitly reject NaN and incorrect infinities.
+                const bool matches = std::isinf(target)
+                    ? (std::isinf(value) && value > 0.0)
+                    : (std::isfinite(value) &&
+                       std::abs(value - target) <= 1e-8 * std::max(1.0, std::abs(target)));
+                if (!matches) {
+                    throw std::runtime_error(method.name + " failed " + case_name +
+                        " (m=" + std::to_string(index) + ", cap=" + std::to_string(cap) +
+                        ", expected=" + std::to_string(target) + ").");
+                }
+            }
+        }
+    };
+
+    check_lp_case("initial [3,2]", G, m, ref);
     check_close("h_m_roth_primal_combinatorial", h_m_roth_primal_combinatorial(G, m));
     check_close("h_m_roth_mds_combinatorial", h_m_roth_mds_combinatorial(G, m));
     check_close("h_m_roth_mds_combinatorial_omp", h_m_roth_mds_combinatorial_omp(G, m));
@@ -112,6 +180,10 @@ int main() {
         "h_m_roth_dual_combinatorial_parity_omp(m=0)",
         h_m_roth_dual_combinatorial_parity_omp(H_distance_2, 0),
         1.0);
+
+    check_lp_case("distance-2 boundary", G_distance_2, 1, 1.0);
+    check_lp_case("distance-2 boundary", G_distance_2, 2, no_cap);
+    check_lp_case("distance-2 boundary", G_distance_2, 3, no_cap);
 
     const std::vector<std::pair<const char*, double>> finite_boundary_values = {
         {"h_m_roth_primal_combinatorial(d=2,m=1)",
@@ -348,18 +420,7 @@ int main() {
         h_m_roth_mds_combinatorial_omp(G_near_singular_mds, 1, near_singular_tol),
         near_singular_ref);
 
-#ifdef HAVE_HIGHS
-    const double jiang_highs_mds_value_4_2 = h_m_jiang_simplified_lp_highs_early_quit(G_mds_4_2, m_mds_4_2, std::numeric_limits<double>::infinity());
-    const double jiang_original_highs_mds_value_4_2 = h_m_jiang_original_lp_highs(G_mds_4_2, m_mds_4_2);
-    std::cout << "h_m_jiang_simplified_lp_highs_early_quit([4,2] MDS) = " << jiang_highs_mds_value_4_2 << "\n";
-    std::cout << "h_m_jiang_original_lp_highs([4,2] MDS) = " << jiang_original_highs_mds_value_4_2 << "\n";
-    if (std::abs(jiang_highs_mds_value_4_2 - ref_mds_4_2) > tol) {
-        throw std::runtime_error("h_m_jiang_simplified_lp_highs_early_quit disagrees with the exact primal combinatorial solver on an MDS case.");
-    }
-    if (std::abs(jiang_original_highs_mds_value_4_2 - ref_mds_4_2) > tol) {
-        throw std::runtime_error("h_m_jiang_original_lp_highs disagrees with the exact primal combinatorial solver on an MDS case.");
-    }
-#endif
+    check_lp_case("[4,2] MDS", G_mds_4_2, m_mds_4_2, ref_mds_4_2);
 
     const std::vector<double> hm_all = h_m_roth_primal_combinatorial_omp_all(G);
     if (hm_all.size() != 1 || std::abs(hm_all[0] - ref) > tol) {
@@ -375,6 +436,7 @@ int main() {
     const std::vector<double> complement_refs = {2.0, 4.0, 8.0};
     for (int m_case = 1; m_case <= static_cast<int>(complement_refs.size()); ++m_case) {
         const double expected = complement_refs[static_cast<size_t>(m_case - 1)];
+        check_lp_case("Roth complement", G_primal_complement, m_case, expected);
         const std::vector<std::pair<const char*, double>> values = {
             {"h_m_roth_primal_combinatorial", h_m_roth_primal_combinatorial(
                 G_primal_complement, m_case)},
@@ -435,10 +497,11 @@ int main() {
     }
     std::cout << "\nh_m_roth_primal_combinatorial_omp_all consistency check passed.\n";
 
-    auto run_omp_case = [](const char* case_name, const Eigen::MatrixXd& G_case, int m_case) {
+    auto run_omp_case = [&](const char* case_name, const Eigen::MatrixXd& G_case, int m_case) {
         std::cout << "\n" << case_name << " (m = " << m_case << ")\n";
         const double hm_omp = h_m_roth_primal_combinatorial_omp(G_case, m_case);
         std::cout << "h_m_roth_primal_combinatorial_omp = " << hm_omp << "\n";
+        check_lp_case(case_name, G_case, m_case, hm_omp);
     };
 
     run_omp_case("G_10_7_3", G_10_7_3, 3);
@@ -519,6 +582,6 @@ int main() {
     };
     check_regression_16_5_close("h_m_roth_primal_combinatorial_omp", untf_regression_16_5_ref_omp);
 
-    std::cout << "All Roth m-height checks passed.\n";
+    std::cout << "All LP and Roth m-height checks passed.\n";
     return 0;
 }

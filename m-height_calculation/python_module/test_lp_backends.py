@@ -9,6 +9,44 @@ import solve_m_height_cpp as s
 
 
 class LpBackendTests(unittest.TestCase):
+    @unittest.skipUnless(hasattr(s, "h_m_roth_primal_lp_highs"), "HiGHS not built")
+    def test_highs_thread_counts_and_layouts(self):
+        G = np.array([[1., 0., 1., 2., -1.], [0., 1., 2., -1., 3.]])
+        padded = np.zeros((2, 10))
+        padded[:, ::2] = G
+        readonly = G.copy()
+        readonly.flags.writeable = False
+        for matrix in (G, np.asfortranarray(G), padded[:, ::2], G.astype(np.float32), readonly):
+            for threads in (1, 2, 4, 16):
+                for m in (1, 2, 3):
+                    expected = s.h_m_roth_primal_combinatorial(G, m)
+                    with self.subTest(threads=threads, m=m, strides=matrix.strides):
+                        self.assert_value(s.h_m_jiang_original_lp_highs(matrix, m, num_threads=threads),
+                                          expected)
+                        for fn in (s.h_m_jiang_simplified_lp_highs_early_quit,
+                                   s.h_m_roth_primal_lp_highs, s.h_m_roth_dual_lp_highs):
+                            for threshold in (1.5, math.inf):
+                                self.assert_value(fn(matrix, m, threshold, num_threads=threads),
+                                                  min(expected, threshold))
+
+    @unittest.skipUnless(hasattr(s, "h_m_roth_primal_lp_highs"), "HiGHS not built")
+    def test_highs_validation_and_worker_errors(self):
+        G = np.array([[1., 0., 1.], [0., 1., 1.]])
+        methods = (
+            lambda matrix, threads: s.h_m_jiang_original_lp_highs(matrix, 1, threads),
+            lambda matrix, threads: s.h_m_jiang_simplified_lp_highs_early_quit(matrix, 1, math.inf, threads),
+            lambda matrix, threads: s.h_m_roth_primal_lp_highs(matrix, 1, math.inf, threads),
+            lambda matrix, threads: s.h_m_roth_dual_lp_highs(matrix, 1, math.inf, threads),
+        )
+        for fn in methods:
+            for threads in (0, -1):
+                with self.assertRaises(ValueError):
+                    fn(G, threads)
+            # Oversized finite coefficients cause model rejection inside the
+            # workers; errors must propagate without crossing the OMP boundary.
+            with self.assertRaises(RuntimeError):
+                fn(G * 1e30, 4)
+
     def backends(self):
         return ["glpk"] + (["highs"] if hasattr(s, "h_m_roth_primal_lp_highs") else [])
 

@@ -49,8 +49,8 @@ set(CXX_STD cxx_std_17)
 # -------------------- pybind11 module --------------------
 set(SOLVE_M_HEIGHT_CPP_SOURCES
   src/py_binding.cc
-  src/methods_jiang_LP.cc
-  src/methods_roth_LP.cc
+  src/methods_jiang_lp.cc
+  src/methods_roth_lp.cc
   src/methods_roth_comb.cc
   src/methods_roth_mds_comb.cc
 )
@@ -111,8 +111,8 @@ endif()
 if (BUILD_TEST_MAIN)
   set(TEST_MAIN_SOURCES
     src/test_main.cc
-    src/methods_jiang_LP.cc
-    src/methods_roth_LP.cc
+    src/methods_jiang_lp.cc
+    src/methods_roth_lp.cc
     src/methods_roth_comb.cc
     src/methods_roth_mds_comb.cc
   )
