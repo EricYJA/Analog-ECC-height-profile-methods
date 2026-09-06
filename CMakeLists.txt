@@ -3,6 +3,8 @@ project(analog_ecc_heights LANGUAGES CXX)
 
 option(BUILD_TEST_MAIN "Build the standalone native test executable" OFF)
 option(SANITIZE "Enable Address/UndefinedBehavior sanitizers" OFF)
+option(BUILD_CPP_COMB "Build the Eigen/OpenMP combinatorial extension" ON)
+option(USE_GLPK "Require and enable the system GLPK library" OFF)
 option(USE_HIGHS "Require and enable the system HiGHS library" OFF)
 option(USE_CUDA_FULL_SWEEP "Enable the experimental CUDA full sweep" OFF)
 
@@ -21,18 +23,26 @@ find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(Eigen3 CONFIG REQUIRED)
 
-# Preserve the existing extension's cumulative GLPK dependency.
-find_path(GLPK_INCLUDE_DIR glpk.h)
-find_library(GLPK_LIBRARY NAMES glpk)
-if (NOT GLPK_INCLUDE_DIR OR NOT GLPK_LIBRARY)
-  message(FATAL_ERROR
-    "System GLPK headers and library are required for every C++ build. "
-    "Install GLPK development files, or set GLPK_INCLUDE_DIR and GLPK_LIBRARY.")
+if (NOT BUILD_CPP_COMB AND NOT USE_GLPK AND NOT USE_HIGHS)
+  message(FATAL_ERROR "Enable BUILD_CPP_COMB, USE_GLPK, or USE_HIGHS; use wheel.cmake=false for Python-only builds.")
 endif()
-
-find_package(OpenMP COMPONENTS CXX QUIET)
+set(HAS_COMB False)
+set(HAS_GLPK False)
+if (BUILD_CPP_COMB)
+  set(HAS_COMB True)
+endif()
+if (USE_GLPK)
+  find_path(GLPK_INCLUDE_DIR glpk.h)
+  find_library(GLPK_LIBRARY NAMES glpk)
+  if (NOT GLPK_INCLUDE_DIR OR NOT GLPK_LIBRARY)
+    message(FATAL_ERROR "USE_GLPK=ON requires system GLPK headers and library. Set GLPK_INCLUDE_DIR and GLPK_LIBRARY if needed.")
+  endif()
+  get_filename_component(GLPK_LIBRARY_DIR "${GLPK_LIBRARY}" DIRECTORY)
+  set(HAS_GLPK True)
+endif()
 set(HAS_OPENMP False)
-if (OpenMP_CXX_FOUND)
+if (BUILD_CPP_COMB OR USE_HIGHS)
+  find_package(OpenMP REQUIRED COMPONENTS CXX)
   set(HAS_OPENMP True)
 endif()
 
@@ -73,18 +83,31 @@ if (USE_HIGHS)
 endif()
 
 set(NATIVE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/analog_ecc_heights/cpp_backend/src")
-set(NATIVE_METHOD_SOURCES
-  "${NATIVE_SOURCE_DIR}/methods_jiang_lp.cc"
-  "${NATIVE_SOURCE_DIR}/methods_roth_lp.cc"
-  "${NATIVE_SOURCE_DIR}/methods_roth_comb.cc"
-  "${NATIVE_SOURCE_DIR}/methods_roth_mds_comb.cc")
-
-# Keep the original module basename and PYBIND11_MODULE declaration unchanged.
-pybind11_add_module(solve_m_height_cpp
-  "${NATIVE_SOURCE_DIR}/py_binding.cc" ${NATIVE_METHOD_SOURCES})
-set(NATIVE_TARGETS solve_m_height_cpp)
+set(COMB_SOURCES "${NATIVE_SOURCE_DIR}/methods_roth_comb.cc" "${NATIVE_SOURCE_DIR}/methods_roth_mds_comb.cc")
+set(GLPK_SOURCES "${NATIVE_SOURCE_DIR}/methods_jiang_lp_glpk.cc" "${NATIVE_SOURCE_DIR}/methods_roth_lp_glpk.cc")
+set(HIGHS_SOURCES "${NATIVE_SOURCE_DIR}/methods_jiang_lp_highs.cc" "${NATIVE_SOURCE_DIR}/methods_roth_lp_highs.cc")
+set(NATIVE_TARGETS "")
+if (BUILD_CPP_COMB)
+  pybind11_add_module(_comb "${NATIVE_SOURCE_DIR}/py_binding_comb.cc" ${COMB_SOURCES})
+  list(APPEND NATIVE_TARGETS _comb)
+endif()
+if (USE_GLPK)
+  pybind11_add_module(_glpk "${NATIVE_SOURCE_DIR}/py_binding_glpk.cc" ${GLPK_SOURCES})
+  list(APPEND NATIVE_TARGETS _glpk)
+endif()
+if (USE_HIGHS)
+  pybind11_add_module(_highs "${NATIVE_SOURCE_DIR}/py_binding_highs.cc" ${HIGHS_SOURCES})
+  list(APPEND NATIVE_TARGETS _highs)
+endif()
+set(EXTENSION_TARGETS ${NATIVE_TARGETS})
 if (BUILD_TEST_MAIN)
-  add_executable(test_main tests/native/test_main.cc ${NATIVE_METHOD_SOURCES})
+  if (NOT BUILD_CPP_COMB OR NOT USE_GLPK)
+    message(FATAL_ERROR "BUILD_TEST_MAIN requires BUILD_CPP_COMB=ON and USE_GLPK=ON.")
+  endif()
+  add_executable(test_main tests/native/test_main.cc ${COMB_SOURCES} ${GLPK_SOURCES})
+  if (USE_HIGHS)
+    target_sources(test_main PRIVATE ${HIGHS_SOURCES})
+  endif()
   list(APPEND NATIVE_TARGETS test_main)
 endif()
 
@@ -94,31 +117,29 @@ if (SANITIZE AND NOT MSVC)
   check_cxx_compiler_flag("-fsanitize=undefined" ANALOG_ECC_HAS_UBSAN)
 endif()
 
-get_filename_component(GLPK_LIBRARY_DIR "${GLPK_LIBRARY}" DIRECTORY)
 foreach(native_target IN LISTS NATIVE_TARGETS)
   target_compile_features(${native_target} PRIVATE cxx_std_17)
-  target_include_directories(${native_target} PRIVATE
-    "${NATIVE_SOURCE_DIR}" "${GLPK_INCLUDE_DIR}")
-  target_link_libraries(${native_target} PRIVATE Eigen3::Eigen "${GLPK_LIBRARY}")
-  set_target_properties(${native_target} PROPERTIES
-    BUILD_RPATH "${GLPK_LIBRARY_DIR}"
-    INSTALL_RPATH "${GLPK_LIBRARY_DIR}"
-    INSTALL_RPATH_USE_LINK_PATH TRUE)
-
-  if (OpenMP_CXX_FOUND)
+  target_include_directories(${native_target} PRIVATE "${NATIVE_SOURCE_DIR}")
+  target_link_libraries(${native_target} PRIVATE Eigen3::Eigen)
+  set_target_properties(${native_target} PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)
+  if (native_target STREQUAL "_glpk" OR native_target STREQUAL "test_main")
+    target_include_directories(${native_target} PRIVATE "${GLPK_INCLUDE_DIR}")
+    target_link_libraries(${native_target} PRIVATE "${GLPK_LIBRARY}")
+    set_target_properties(${native_target} PROPERTIES
+      BUILD_RPATH "${GLPK_LIBRARY_DIR}" INSTALL_RPATH "${GLPK_LIBRARY_DIR}")
+  endif()
+  if (NOT native_target STREQUAL "_glpk")
     target_link_libraries(${native_target} PRIVATE OpenMP::OpenMP_CXX)
     target_compile_definitions(${native_target} PRIVATE USE_OPENMP=1)
   endif()
-  if (USE_HIGHS)
+  if (native_target STREQUAL "_highs" OR (native_target STREQUAL "test_main" AND USE_HIGHS))
     target_compile_definitions(${native_target} PRIVATE HAVE_HIGHS=1)
     target_link_libraries(${native_target} PRIVATE ${HIGHS_TARGET})
     if (HIGHS_INCLUDE_ROOT)
       target_include_directories(${native_target} PRIVATE "${HIGHS_INCLUDE_ROOT}")
     endif()
-    set_property(TARGET ${native_target} APPEND PROPERTY
-      BUILD_RPATH "$<TARGET_FILE_DIR:${HIGHS_TARGET}>")
-    set_property(TARGET ${native_target} APPEND PROPERTY
-      INSTALL_RPATH "$<TARGET_FILE_DIR:${HIGHS_TARGET}>")
+    set_property(TARGET ${native_target} APPEND PROPERTY BUILD_RPATH "$<TARGET_FILE_DIR:${HIGHS_TARGET}>")
+    set_property(TARGET ${native_target} APPEND PROPERTY INSTALL_RPATH "$<TARGET_FILE_DIR:${HIGHS_TARGET}>")
   endif()
   if (SANITIZE AND NOT MSVC)
     if (ANALOG_ECC_HAS_ASAN)
@@ -133,7 +154,7 @@ foreach(native_target IN LISTS NATIVE_TARGETS)
 endforeach()
 
 configure_file(cmake/build_info.py.in "${CMAKE_CURRENT_BINARY_DIR}/_build_info.py" @ONLY)
-install(TARGETS solve_m_height_cpp
+install(TARGETS ${EXTENSION_TARGETS}
   LIBRARY DESTINATION analog_ecc_heights/cpp_backend
   RUNTIME DESTINATION analog_ecc_heights/cpp_backend)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/_build_info.py"

@@ -94,28 +94,38 @@ def test_default_call_never_loads_native():
 import importlib.abc, json, sys
 class BlockNative(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.endswith("solve_m_height_cpp"):
+        if (fullname.endswith("solve_m_height_cpp") or fullname in tuple("analog_ecc_heights.cpp_backend." + x for x in ("_comb", "_glpk", "_highs"))):
             raise AssertionError("default call attempted native import")
 sys.meta_path.insert(0, BlockNative())
 import analog_ecc_heights as h
 v = h.h_m_roth_primal_lp([[1, 0, 1], [0, 1, 1]], 1)
-print(json.dumps([v, any(n.endswith("solve_m_height_cpp") for n in sys.modules)]))
+print(json.dumps([v, any(n == "solve_m_height_cpp" or n in tuple("analog_ecc_heights.cpp_backend." + x for x in ("_comb", "_glpk", "_highs")) for n in sys.modules)]))
 '''
     result = subprocess.run([sys.executable, "-c", code], check=True, capture_output=True,
                             text=True, env=os.environ.copy(), timeout=30)
     assert json.loads(result.stdout) == [2., False]
 
 
-def test_native_without_openmp_rejects_explicit_parallelism():
+def test_native_parallel_defaults():
     from types import SimpleNamespace
     from analog_ecc_heights.cpp_backend import adapter
     native = SimpleNamespace(h_m_roth_primal_combinatorial=lambda G, m, **kw: float(kw["num_threads"]))
-    with mock.patch.object(adapter, "load_native", return_value=native), mock.patch.object(
-        adapter, "import_module", return_value=SimpleNamespace(HAS_OPENMP=False)
-    ):
-        assert h.h_m_roth_primal_combinatorial(G, 1, backend="cpp") == 1.
-        with pytest.raises(ValueError, match="OpenMP"):
-            h.h_m_roth_primal_combinatorial(G, 1, backend="cpp", num_threads=2)
+    with mock.patch.object(adapter, "load_native", return_value=native):
+        assert h.h_m_roth_primal_combinatorial(G, 1, backend="cpp") == 16.
+        assert h.h_m_roth_primal_combinatorial(G, 1, backend="cpp", num_threads=1) == 1.
+        assert h.h_m_roth_primal_combinatorial(G, 1, backend="cpp", num_threads=2) == 2.
+
+
+@pytest.mark.parametrize("missing", ["cpp", "cpp-glpk", "cpp-highs"])
+def test_backend_availability_is_independent(missing):
+    from analog_ecc_heights.cpp_backend import adapter
+    def load(backend):
+        if backend == missing:
+            raise ImportError("missing library")
+        return object()
+    with mock.patch.object(adapter, "load_native", side_effect=load):
+        assert h.available_backends() == [b for b in ("python", "cpp", "cpp-glpk", "cpp-highs") if b != missing]
+
 
 def test_installed_native_missing_highs_does_not_use_glpk():
     from types import SimpleNamespace

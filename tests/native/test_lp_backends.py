@@ -5,11 +5,10 @@ import subprocess
 import sys
 import unittest
 import numpy as np
-try:
-    from analog_ecc_heights.cpp_backend.adapter import load_native
-    s = load_native()
-except ImportError as exc:
-    raise unittest.SkipTest(f"Native extension unavailable: {exc}") from exc
+import solve_m_height_cpp as s
+from analog_ecc_heights import h_m_roth_primal_combinatorial
+if not any(hasattr(s, f"h_m_roth_primal_lp_{name}") for name in ("glpk", "highs")):
+    raise unittest.SkipTest("No native LP extension installed")
 
 
 class LpBackendTests(unittest.TestCase):
@@ -23,7 +22,7 @@ class LpBackendTests(unittest.TestCase):
         for matrix in (G, np.asfortranarray(G), padded[:, ::2], G.astype(np.float32), readonly):
             for threads in (1, 2, 4, 16):
                 for m in (1, 2, 3):
-                    expected = s.h_m_roth_primal_combinatorial(G, m)
+                    expected = h_m_roth_primal_combinatorial(G, m)
                     with self.subTest(threads=threads, m=m, strides=matrix.strides):
                         self.assert_value(s.h_m_jiang_original_lp_highs(matrix, m, num_threads=threads),
                                           expected)
@@ -52,7 +51,7 @@ class LpBackendTests(unittest.TestCase):
                 fn(G * 1e30, 4)
 
     def backends(self):
-        return ["glpk"] + (["highs"] if hasattr(s, "h_m_roth_primal_lp_highs") else [])
+        return [name for name in ("glpk", "highs") if hasattr(s, f"h_m_roth_primal_lp_{name}")]
 
     def roth_methods(self):
         return [getattr(s, f"h_m_roth_{kind}_lp_{backend}")
@@ -77,8 +76,8 @@ class LpBackendTests(unittest.TestCase):
         matrices += [rng.normal(size=(2, 5)) for _ in range(5)]
         for G in matrices:
             for m in range(1, G.shape[1] - G.shape[0] + 1):
-                expected = s.h_m_roth_primal_combinatorial(G, m)
-                for fn in self.roth_methods() + [s.h_m_jiang_simplified_lp_glpk_early_quit]:
+                expected = h_m_roth_primal_combinatorial(G, m)
+                for fn in self.roth_methods() + [getattr(s, f"h_m_jiang_simplified_lp_{name}_early_quit") for name in self.backends()]:
                     for threshold in (0.5, expected / 2, expected, expected * 2, math.inf):
                         with self.subTest(fn=fn.__name__, m=m, threshold=threshold):
                             self.assert_value(fn(G=G, m=m, early_quit_threshold=threshold),
@@ -100,9 +99,9 @@ class LpBackendTests(unittest.TestCase):
                     np.array([[1., 0., 1., 0.], [0., 1., 0., 1.]])]
         for G in matrices:
             for m in range(1, G.shape[1]):
-                expected = s.h_m_roth_primal_combinatorial(G, m)
-                self.assert_value(s.h_m_jiang_simplified_lp_glpk_early_quit(G, m, math.inf),
-                                  expected)
+                expected = h_m_roth_primal_combinatorial(G, m)
+                for name in self.backends():
+                    self.assert_value(getattr(s, f"h_m_jiang_simplified_lp_{name}_early_quit")(G, m, math.inf), expected)
                 for backend in self.backends():
                     fn = getattr(s, f"h_m_jiang_original_lp_{backend}")
                     with self.subTest(fn=fn.__name__, m=m):
@@ -129,6 +128,7 @@ class LpBackendTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 fn(np.array([[math.nan, 1.]]), 1, math.inf)
 
+    @unittest.skipUnless(hasattr(s, "h_m_roth_primal_lp_glpk"), "GLPK not built")
     def test_glpk_incremental_early_exit(self):
         # A full task list here has hundreds of millions of entries, but the
         # first LP already exceeds the threshold. Run in a bounded subprocess.
@@ -148,6 +148,7 @@ assert s.h_m_jiang_simplified_lp_glpk_early_quit(np.ones((1, 28)), 14, 0.5) == 0
             check=True, capture_output=True, text=True, timeout=10,
         )
 
+    @unittest.skipUnless(hasattr(s, "h_m_roth_primal_lp_glpk"), "GLPK not built")
     def test_glpk_simplified_validation_and_unbounded(self):
         fn = s.h_m_jiang_simplified_lp_glpk_early_quit
         G = np.array([[1., 0., 1., 0.], [0., 1., 0., 1.]])

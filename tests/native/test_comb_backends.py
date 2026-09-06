@@ -2,9 +2,10 @@
 import unittest
 
 import numpy as np
+from analog_ecc_heights import h_m_roth_primal_lp
 try:
     from analog_ecc_heights.cpp_backend.adapter import load_native
-    backend = load_native()
+    backend = load_native("cpp")
 except ImportError as exc:
     raise unittest.SkipTest(f"Native extension unavailable: {exc}") from exc
 
@@ -68,7 +69,7 @@ class CombinatorialTests(unittest.TestCase):
             n, r = g.shape[1], h.shape[0]
             expected_profile = []
             for m in range(n):
-                expected = backend.h_m_roth_primal_lp_glpk(g, m, float("inf"))
+                expected = h_m_roth_primal_lp(g, m)
                 if 1 <= m <= r:
                     expected_profile.append(expected)
                 methods = [(name, g) for name in self.generator_names]
@@ -90,7 +91,7 @@ class CombinatorialTests(unittest.TestCase):
                   np.array([[1., 2., 3.]])):
             g, h = self.systematic_pair(p)
             r = h.shape[0]
-            expected = backend.h_m_roth_primal_lp_glpk(g, r, float("inf"))
+            expected = h_m_roth_primal_lp(g, r)
             for threads in (1, 2, 16):
                 for name, matrix in ((self.mds_g_name, g), (self.mds_h_name, h)):
                     with self.subTest(name=name, threads=threads, p=p.tolist()):
@@ -112,7 +113,7 @@ class CombinatorialTests(unittest.TestCase):
         rng = np.random.default_rng(714)
         for k, r in ((1, 3), (2, 2), (2, 3), (3, 2), (3, 3)):
             g, h = self.systematic_pair(rng.uniform(-2., 2., size=(k, r)))
-            expected = [backend.h_m_roth_primal_lp_glpk(g, m, float("inf"))
+            expected = [h_m_roth_primal_lp(g, m)
                         for m in range(1, r + 1)]
             for scale in (1e-4, 1., 1e4):
                 for threads in (1, 16):

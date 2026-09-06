@@ -3,16 +3,25 @@
 from importlib import import_module
 
 
-def load_native():
+_MODULES = {"cpp": "_comb", "cpp-glpk": "_glpk", "cpp-highs": "_highs"}
+_REQUIREMENTS = {
+    "cpp": "Eigen headers and OpenMP; build with -Cwheel.cmake=true",
+    "cpp-glpk": "Eigen headers and system GLPK; build with -Cwheel.cmake=true "
+                "-Ccmake.define.BUILD_CPP_COMB=OFF -Ccmake.define.USE_GLPK=ON",
+    "cpp-highs": "Eigen headers, OpenMP, and system HiGHS; build with -Cwheel.cmake=true "
+                 "-Ccmake.define.BUILD_CPP_COMB=OFF -Ccmake.define.USE_HIGHS=ON",
+}
+
+
+def load_native(backend):
+    """Load only the extension for the requested backend."""
     try:
-        return import_module(".solve_m_height_cpp", __package__)
+        return import_module(f".{_MODULES[backend]}", __package__)
     except (ImportError, OSError) as exc:
         raise ImportError(
-            "The C++ extension could not be loaded. Install Eigen headers and GLPK, "
-            "then build analog-ecc-heights from source with -Cwheel.cmake=true. "
-            "For cpp-highs also install the HiGHS development library and add "
-            "-Ccmake.define.USE_HIGHS=ON. If already built, check that the shared "
-            f"libraries are available. Original error: {exc}"
+            f"Backend {backend!r} could not be loaded. Requires {_REQUIREMENTS[backend]}. "
+            "Keep the native shared libraries available after installation. "
+            f"Original error: {exc}"
         ) from exc
 
 
@@ -21,20 +30,12 @@ def _threads(backend, requested):
         if requested not in (None, 1):
             raise ValueError("The cpp-glpk backend supports num_threads=None or 1 only.")
         return 1
-    try:
-        info = import_module("._build_info", __package__)
-        parallel = info.HAS_OPENMP
-    except ImportError:
-        parallel = False
-    if requested is None:
-        return 16 if parallel else 1
-    if requested > 1 and not parallel:
-        raise ValueError("This C++ extension was built without OpenMP; use num_threads=1.")
-    return requested
+    # OpenMP is required when building either parallel extension.
+    return 16 if requested is None else requested
 
 
 def call(method, matrix, m, *, backend, num_threads, **options):
-    native = load_native()
+    native = load_native(backend)
     if backend == "cpp":
         symbol = method
     else:
@@ -46,9 +47,7 @@ def call(method, matrix, m, *, backend, num_threads, **options):
         function = getattr(native, symbol)
     except AttributeError as exc:
         raise ImportError(
-            f"Backend {backend!r} is not present in this build. For cpp-highs, "
-            "install the HiGHS development library and rebuild from source with "
-            "-Cwheel.cmake=true -Ccmake.define.USE_HIGHS=ON."
+            f"Backend {backend!r} is missing symbol {symbol!r}; rebuild analog-ecc-heights."
         ) from exc
     threads = _threads(backend, num_threads)
     if backend != "cpp-glpk":

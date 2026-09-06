@@ -42,11 +42,11 @@ def test_wheel_contains_package_and_legacy_shim(built_wheel):
         assert "Version: 0.1.0\n" in metadata
         assert "Requires-Python: >=3.10" in metadata
         native = any(
-            name.startswith("analog_ecc_heights/cpp_backend/solve_m_height_cpp")
+            name.startswith(tuple(f"analog_ecc_heights/cpp_backend/_{part}." for part in ("comb", "glpk", "highs")))
             and name.endswith((".so", ".pyd"))
             for name in names
         )
-        if os.environ.get("ANALOG_ECC_EXPECT_HIGHS") is not None:
+        if os.environ.get("ANALOG_ECC_EXPECT_NATIVE") is not None:
             assert native, "The requested native build produced a wheel without its extension"
         wheel_metadata_name = next(name for name in names if name.endswith(".dist-info/WHEEL"))
         wheel_metadata = archive.read(wheel_metadata_name).decode()
@@ -79,7 +79,7 @@ def test_installed_wheel_works_outside_checkout(built_wheel, tmp_path):
     )
     with zipfile.ZipFile(built_wheel) as archive:
         native = any(
-            name.startswith("analog_ecc_heights/cpp_backend/solve_m_height_cpp")
+            name.startswith(tuple(f"analog_ecc_heights/cpp_backend/_{part}." for part in ("comb", "glpk", "highs")))
             and name.endswith((".so", ".pyd"))
             for name in archive.namelist()
         )
@@ -91,7 +91,7 @@ import sys
 
 class BlockNative(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname == "solve_m_height_cpp" or fullname.endswith(".solve_m_height_cpp"):
+        if fullname == "solve_m_height_cpp" or fullname in tuple("analog_ecc_heights.cpp_backend." + x for x in ("_comb", "_glpk", "_highs")):
             raise AssertionError("Default API attempted to load the native extension")
 
 blocker = BlockNative()
@@ -104,23 +104,33 @@ assert abs(heights.h_m_roth_primal_lp(G, 1) - 1.0) < 1e-9
 assert abs(heights.h_m_roth_primal_combinatorial(G, 1) - 1.0) < 1e-9
 sys.meta_path.remove(blocker)
 
+available = heights.available_backends()
+import solve_m_height_cpp as legacy
+for backend, symbol in (("cpp", "h_m_roth_primal_combinatorial"),
+                        ("cpp-glpk", "h_m_roth_primal_lp_glpk"),
+                        ("cpp-highs", "h_m_roth_primal_lp_highs")):
+    fn = heights.h_m_roth_primal_combinatorial if backend == "cpp" else heights.h_m_roth_primal_lp
+    if backend in available:
+        assert abs(fn(G, 1, backend=backend) - 1.0) < 1e-9
+        args = (G, 1) if backend == "cpp" else (G, 1, float("inf"))
+        assert abs(getattr(legacy, symbol)(*args) - 1.0) < 1e-9
+    else:
+        try:
+            fn(G, 1, backend=backend)
+        except ImportError:
+            pass
+        else:
+            raise AssertionError(f"Unexpected backend {backend}")
+        assert not hasattr(legacy, symbol)
 if sys.argv[2] == "native":
     from analog_ecc_heights.cpp_backend import _build_info
-    assert abs(heights.h_m_roth_primal_lp(G, 1, backend="cpp-glpk") - 1.0) < 1e-9
-    assert abs(heights.h_m_roth_primal_combinatorial(G, 1, backend="cpp") - 1.0) < 1e-9
-    if _build_info.HAS_HIGHS:
-        assert abs(heights.h_m_roth_primal_lp(G, 1, backend="cpp-highs") - 1.0) < 1e-9
-    import solve_m_height_cpp as legacy
-    assert abs(legacy.h_m_roth_primal_lp_glpk(G, 1, float("inf")) - 1.0) < 1e-9
-    print(json.dumps({"highs": _build_info.HAS_HIGHS, "openmp": _build_info.HAS_OPENMP}))
+    assert _build_info.HAS_COMB == ("cpp" in available)
+    assert _build_info.HAS_GLPK == ("cpp-glpk" in available)
+    assert _build_info.HAS_HIGHS == ("cpp-highs" in available)
+    assert _build_info.HAS_OPENMP == (_build_info.HAS_COMB or _build_info.HAS_HIGHS)
 else:
-    try:
-        heights.h_m_roth_primal_lp(G, 1, backend="cpp-glpk")
-    except ImportError:
-        pass
-    else:
-        raise AssertionError("A Python-only wheel unexpectedly provided cpp-glpk")
-    print(json.dumps({"native": False}))
+    assert available == ["python"]
+print(json.dumps(available))
 """
     result = subprocess.run(
         [str(executable), "-I", "-c", script, str(environment), "native" if native else "python"],
@@ -131,9 +141,11 @@ else:
         timeout=120,
     )
     capabilities = json.loads(result.stdout.strip().splitlines()[-1])
-    expected_highs = os.environ.get("ANALOG_ECC_EXPECT_HIGHS")
-    if native and expected_highs is not None:
-        assert capabilities["highs"] is (expected_highs == "1")
+    expected = os.environ.get("ANALOG_ECC_EXPECT_NATIVE")
+    if expected is not None:
+        names = {"comb": "cpp", "glpk": "cpp-glpk", "highs": "cpp-highs"}
+        assert capabilities == ["python"] + [names[x] for x in ("comb", "glpk", "highs") if x in expected.split(",")]
+
 
 
 @pytest.mark.installation
@@ -148,12 +160,12 @@ def test_sdist_includes_native_build_sources():
         "CMakeLists.txt",
         "cmake/build_info.py.in",
         "src/solve_m_height_cpp.py",
-        "src/analog_ecc_heights/cpp_backend/src/py_binding.cc",
-        "src/analog_ecc_heights/cpp_backend/src/lp_workspace.hh",
+        *[f"src/analog_ecc_heights/cpp_backend/src/py_binding_{part}.cc" for part in ("comb", "glpk", "highs")],
+        "src/analog_ecc_heights/cpp_backend/src/lp_common.hh",
+        *[f"src/analog_ecc_heights/cpp_backend/src/lp_workspace_{part}.hh" for part in ("glpk", "highs")],
         "src/analog_ecc_heights/cpp_backend/src/methods.hh",
         "src/analog_ecc_heights/cpp_backend/src/utils.hh",
-        "src/analog_ecc_heights/cpp_backend/src/methods_jiang_lp.cc",
-        "src/analog_ecc_heights/cpp_backend/src/methods_roth_lp.cc",
+        *[f"src/analog_ecc_heights/cpp_backend/src/methods_{family}_lp_{part}.cc" for family in ("jiang", "roth") for part in ("glpk", "highs")],
         "src/analog_ecc_heights/cpp_backend/src/methods_roth_comb.cc",
         "src/analog_ecc_heights/cpp_backend/src/methods_roth_mds_comb.cc",
         "tests/native/test_main.cc",

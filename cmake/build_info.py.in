@@ -1,4 +1,6 @@
-"""Capabilities of the optional extension, generated during its native build."""
+"""Capabilities of the optional extensions, generated during the native build."""
 
+HAS_COMB = @HAS_COMB@
+HAS_GLPK = @HAS_GLPK@
 HAS_HIGHS = @HAS_HIGHS@
 HAS_OPENMP = @HAS_OPENMP@

@@ -58,13 +58,15 @@ def test_available_backend_names_match_native_features():
     assert available[0] == "python"
     assert len(available) == len(set(available))
     assert set(available) <= {"python", "cpp", "cpp-glpk", "cpp-highs"}
-    if len(available) == 1:
-        return
-    native = import_module("analog_ecc_heights.cpp_backend.solve_m_height_cpp")
-    for backend, symbol in (("cpp", "h_m_roth_primal_combinatorial"),
-                            ("cpp-glpk", "h_m_roth_primal_lp_glpk"),
-                            ("cpp-highs", "h_m_roth_primal_lp_highs")):
-        assert (backend in available) == hasattr(native, symbol)
+    from analog_ecc_heights.cpp_backend.adapter import load_native
+    for backend in ("cpp", "cpp-glpk", "cpp-highs"):
+        try:
+            native = load_native(backend)
+        except ImportError:
+            assert backend not in available
+        else:
+            assert backend in available
+            assert native.__name__.endswith({"cpp": "._comb", "cpp-glpk": "._glpk", "cpp-highs": "._highs"}[backend])
 
 
 @pytest.mark.parametrize("backend", LP_BACKENDS)
@@ -189,7 +191,7 @@ def test_array_layouts_and_real_input_conversion(backend):
 def test_parallel_requests_match_build_capabilities(backend):
     require_backend(backend)
     info = import_module("analog_ecc_heights.cpp_backend._build_info")
-    assert isinstance(info.HAS_OPENMP, bool)
+    assert info.HAS_OPENMP is True
     G, H = systematic_pair(np.array([[1., 1.], [1., 2.]]))
     if backend == "cpp":
         methods = [(method, G) for method in GENERATOR_METHODS]
@@ -201,12 +203,8 @@ def test_parallel_requests_match_build_capabilities(backend):
     for method, matrix in methods:
         expected = method(matrix, 2, backend=backend, num_threads=1)
         assert_height(method(matrix, 2, backend=backend), expected)
-        if info.HAS_OPENMP:
-            assert_height(method(matrix, 2, backend=backend, num_threads=2), expected)
-        else:
-            with pytest.raises(ValueError, match="OpenMP"):
-                method(matrix, 2, backend=backend, num_threads=2)
-    if backend == "cpp" and info.HAS_OPENMP:
+        assert_height(method(matrix, 2, backend=backend, num_threads=2), expected)
+    if backend == "cpp":
         np.testing.assert_allclose(heights.h_m_roth_primal_combinatorial(
             G, backend=backend, num_threads=2), heights.h_m_roth_primal_combinatorial(G))
 

@@ -115,7 +115,7 @@ Returns `"python"` and whichever of `"cpp"`, `"cpp-glpk"`, and `"cpp-highs"` can
 | --- | --- | --- |
 | `python` | `None` or `1` | Sequential Python enumeration |
 | `cpp-glpk` | `None` or `1` | Sequential GLPK enumeration |
-| `cpp`, `cpp-highs` | Positive integers; values above 1 require OpenMP | 16 workers with OpenMP, otherwise 1 |
+| `cpp`, `cpp-highs` | Positive integers; OpenMP required at build time | 16 workers |
 
 The parameter controls this package's workers. It does not set every NumPy/SciPy or BLAS internal thread count. Unsupported thread counts raise an error; an explicit parallel request is not silently ignored.
 
@@ -123,4 +123,4 @@ The parameter controls this package's workers. It does not set every NumPy/SciPy
 
 Wrong option types raise `TypeError`; invalid matrix values, index ranges, backend combinations, rank conditions, and unsupported thread requests raise `ValueError`. Missing native support raises `ImportError` with installation guidance. LP solver failures raise `RuntimeError`. `m` and `num_threads` must be integer values; booleans are rejected.
 
-Native-enabled installations also provide the original `solve_m_height_cpp` import through a compatibility module. Its original function names, positional options, and native defaults remain available. The public `analog_ecc_heights` API provides the unified backend selection and stricter option validation described here. The compatibility module is part of the same distribution and requires its compiled extension.
+Native-enabled installations also provide the original `solve_m_height_cpp` import through a compatibility module. Its original function names, positional options, and native defaults remain available. The public `analog_ecc_heights` API provides the unified backend selection and stricter option validation described here. The compatibility module is part of the same distribution and requires the corresponding compiled extension for each function.

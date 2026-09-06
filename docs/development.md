@@ -31,7 +31,7 @@ conda activate analog-ecc
 python -m pytest -q tests/native
 ```
 
-Install a native-enabled package before running those tests. Use the [native installation instructions](installation.md), and test GLPK-only and HiGHS-enabled builds separately. Source-only `PYTHONPATH=src` runs should not be used to verify a wheel's compiled extension: the source tree can mask the installed package.
+Install a native-enabled package before running those tests. Use the [native installation instructions](installation.md), and test combinatorial-only, GLPK-only, HiGHS-only, and combined builds separately. Source-only `PYTHONPATH=src` runs should not be used to verify a wheel's compiled extension: the source tree can mask the installed package.
 
 ## Build release artifacts
 
@@ -43,7 +43,7 @@ python -m build --outdir dist
 python -m twine check dist/*
 ```
 
-For version 0.1.0, expect `analog_ecc_heights-0.1.0-py3-none-any.whl` and `analog_ecc_heights-0.1.0.tar.gz`. The source archive includes Python code, unchanged C++ sources, CMake configuration, tests, examples, and documentation. The Python wheel contains runtime Python files and the compatibility shim, without C++ source or compiled modules.
+For version 0.1.0, expect `analog_ecc_heights-0.1.0-py3-none-any.whl` and `analog_ecc_heights-0.1.0.tar.gz`. The source archive includes Python code, C++ sources with preserved computational bodies, CMake configuration, tests, examples, and documentation. The Python wheel contains runtime Python files and the compatibility shim, without C++ source or compiled modules.
 
 Validate actual artifacts rather than only imports from the checkout:
 
@@ -62,19 +62,21 @@ Build a native wheel from the source archive to verify that the archive is compl
 ```bash
 conda activate analog-ecc
 python -m pip wheel --no-deps --wheel-dir native-dist dist/analog_ecc_heights-0.1.0.tar.gz \
-  -Cwheel.cmake=true -Ccmake.define.USE_HIGHS=ON
+  -Cwheel.cmake=true -Ccmake.define.USE_GLPK=ON -Ccmake.define.USE_HIGHS=ON
 ```
 
-Use `USE_HIGHS=OFF` for the second native configuration. Install each resulting wheel and repeat the tests with `ANALOG_ECC_TEST_WHEEL` pointing to that exact native wheel. Set `ANALOG_ECC_EXPECT_HIGHS=1` for HiGHS builds or `0` for GLPK-only builds. Keep native variants in separate output directories so they cannot overwrite each other; their filenames can be identical despite different solver features.
+Use the independent flags in the [installation guide](installation.md) to build the other three configurations. Install each wheel and repeat the tests with `ANALOG_ECC_TEST_WHEEL` pointing to that exact wheel. Set `ANALOG_ECC_EXPECT_NATIVE` to `comb`, `glpk`, `highs`, or `comb,glpk,highs`, respectively. Keep variants in separate output directories: their filenames are identical despite different features.
 
 Native wheels built locally link against local system libraries. The first PyPI release uploads the default Python wheel and source archive, not those local validation wheels.
 
 ## Native build settings
 
-Package builds default to Release, with these optional settings disabled:
+Native package builds default to Release. Combinatorial support is enabled by default; solver extensions and test/sanitizer options are disabled:
 
 | Setting | Purpose |
 | --- | --- |
+| `cmake.define.BUILD_CPP_COMB` | Build Eigen/OpenMP combinatorial support (default `ON`) |
+| `cmake.define.USE_GLPK` | Require and enable system GLPK |
 | `cmake.define.USE_HIGHS` | Require and enable system HiGHS |
 | `cmake.define.BUILD_TEST_MAIN` | Build the standalone native test executable |
 | `cmake.define.SANITIZE` | Enable supported address/undefined-behavior sanitizers |
@@ -88,16 +90,16 @@ python -m pip install "pybind11>=2.12"
 cmake -S . -B build/native-tests \
   -DCMAKE_BUILD_TYPE=Release \
   -Dpybind11_DIR="$(python -m pybind11 --cmakedir)" \
-  -DBUILD_TEST_MAIN=ON -DUSE_HIGHS=OFF
+  -DBUILD_TEST_MAIN=ON -DUSE_GLPK=ON -DUSE_HIGHS=OFF
 cmake --build build/native-tests --parallel 2
 ./build/native-tests/test_main
 ```
 
-For HiGHS, enable `USE_HIGHS` and add its CMake prefix as needed. Compiler memory use can be substantial; `CMAKE_BUILD_PARALLEL_LEVEL=2` limits package-build compilation concurrency. The original computational sources under `src/analog_ecc_heights/cpp_backend/src/` should remain unchanged during this packaging migration.
+For HiGHS, enable `USE_HIGHS` and add its CMake prefix as needed. Compiler memory use can be substantial; `CMAKE_BUILD_PARALLEL_LEVEL=2` limits package-build compilation concurrency. The standalone test requires combinatorial and GLPK support, and optionally exercises HiGHS. Computational bodies remain unchanged; the split moves solver-specific code and bindings into separate files.
 
 ## Continuous integration
 
-`.github/workflows/tests.yml` builds and tests the default package on Linux, macOS, and Windows with Python 3.10 and 3.14. An additional Ubuntu/Python 3.10 job tests NumPy 1.23.0 and SciPy 1.9.0, the declared minimum versions. Native Linux jobs build both GLPK-only and HiGHS-enabled wheels from the source distribution and test their installed behavior. HiGHS is built as a system C++ library in the native job. CI validates artifacts but does not publish them.
+`.github/workflows/tests.yml` builds and tests the default package on Linux, macOS, and Windows with Python 3.10 and 3.14. An additional Ubuntu/Python 3.10 job tests NumPy 1.23.0 and SciPy 1.9.0, the declared minimum versions. Native Linux jobs build combinatorial-only, GLPK-only, HiGHS-only, and combined wheels from the source distribution and test their installed behavior. HiGHS is built as a system C++ library in the native job. CI validates artifacts but does not publish them.
 
 ## Prepare a PyPI release
 

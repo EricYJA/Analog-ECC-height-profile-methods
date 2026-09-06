@@ -49,9 +49,9 @@ h_m_roth_primal_combinatorial(G, 1, backend="cpp", num_threads=1)
 | Backend | Methods | Separately installed native dependencies |
 | --- | --- | --- |
 | `python` | LP and combinatorial | None; LP uses the HiGHS solver included with SciPy |
-| `cpp` | Combinatorial | Eigen headers at build time; GLPK through the shared extension |
+| `cpp` | Combinatorial | Eigen headers at build time; OpenMP |
 | `cpp-glpk` | LP | Eigen headers at build time; GLPK headers and library |
-| `cpp-highs` | LP | Eigen headers at build time; GLPK and HiGHS headers and libraries |
+| `cpp-highs` | LP | Eigen headers at build time; HiGHS headers and library; OpenMP |
 
 An unavailable backend raises an installation error. Unsupported combinations raise an argument error. Calls never switch to another backend automatically.
 
@@ -63,9 +63,7 @@ An unavailable backend raises an installation error. Unsupported combinations ra
 - [Development, tests, and release preparation](docs/development.md)
 - Runnable examples: [basic usage](examples/basic_usage.py), [height profiles](examples/height_profile.py), and [backend comparison](examples/compare_backends.py)
 
-The public API is in `src/analog_ecc_heights/`. Its `py_backend/` and `cpp_backend/` directories implement the same mathematical methods. The existing C++ computation and binding sources are preserved under `cpp_backend/src/`. Native-enabled installations retain `import solve_m_height_cpp` for existing callers, within the same distribution.
-
-Version: **0.1.0**. Author: **Changcheng Yuan** (`eric.yuan.cc@gmail.com`). A project license has not yet been specified; release preparation must include the selected license and corresponding metadata.
+The public API is in `src/analog_ecc_heights/`. Its `py_backend/` and `cpp_backend/` directories implement the same mathematical methods. The C++ computational bodies are preserved under `cpp_backend/src/`, with separate `_comb`, `_glpk`, and `_highs` extensions and bindings. Native-enabled installations retain `import solve_m_height_cpp` for existing callers, within the same distribution.
 
 ## References
 

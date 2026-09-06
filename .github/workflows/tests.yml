@@ -63,12 +63,28 @@ jobs:
           path: dist/*
 
   native:
-    name: Native Linux / HiGHS ${{ matrix.highs }}
+    name: Native Linux / ${{ matrix.backends }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        highs: ["OFF", "ON"]
+        include:
+          - backends: comb
+            comb: "ON"
+            glpk: "OFF"
+            highs: "OFF"
+          - backends: glpk
+            comb: "OFF"
+            glpk: "ON"
+            highs: "OFF"
+          - backends: highs
+            comb: "OFF"
+            glpk: "OFF"
+            highs: "ON"
+          - backends: comb,glpk,highs
+            comb: "ON"
+            glpk: "ON"
+            highs: "ON"
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: "2"
     steps:
@@ -80,12 +96,15 @@ jobs:
           channels: conda-forge
           channel-priority: strict
           miniforge-version: latest
-      - name: Install system GLPK, Eigen, and build tools
+      - name: Install Eigen and build tools
         run: |
           conda activate analog-ecc
           sudo apt-get update
-          sudo apt-get install -y libglpk-dev libeigen3-dev cmake ninja-build g++
-          python -m pip install build pytest twine numpy scipy
+          sudo apt-get install -y libeigen3-dev cmake ninja-build g++
+          python -m pip install build pytest twine numpy scipy pybind11
+      - name: Install system GLPK
+        if: matrix.glpk == 'ON'
+        run: sudo apt-get install -y libglpk-dev
       - name: Build and install the system HiGHS C++ library
         if: matrix.highs == 'ON'
         run: |
@@ -105,16 +124,26 @@ jobs:
           python -m build --sdist
           python -m pip wheel --no-deps --wheel-dir native-dist dist/*.tar.gz \
             -Cwheel.cmake=true \
+            -Ccmake.define.BUILD_CPP_COMB=${{ matrix.comb }} \
+            -Ccmake.define.USE_GLPK=${{ matrix.glpk }} \
             -Ccmake.define.USE_HIGHS=${{ matrix.highs }} \
             -Ccmake.define.CMAKE_PREFIX_PATH="$RUNNER_TEMP/highs-install"
           python -m twine check native-dist/*
           python -m pip install --no-deps native-dist/*.whl
       - name: Test native package and release artifacts
         env:
-          ANALOG_ECC_EXPECT_HIGHS: ${{ matrix.highs == 'ON' && '1' || '0' }}
+          ANALOG_ECC_EXPECT_NATIVE: ${{ matrix.backends }}
         run: |
           conda activate analog-ecc
           export ANALOG_ECC_TEST_WHEEL="$(python -c 'from pathlib import Path; print(next(Path("native-dist").glob("*.whl")).resolve())')"
           export ANALOG_ECC_TEST_SDIST="$(python -c 'from pathlib import Path; print(next(Path("dist").glob("*.tar.gz")).resolve())')"
           python -m pytest -q
           python -m pytest -q tests/native
+      - name: Verify mandatory OpenMP configuration
+        if: matrix.backends == 'comb,glpk,highs'
+        env:
+          ANALOG_ECC_TEST_CMAKE: "1"
+          CMAKE_PREFIX_PATH: ${{ runner.temp }}/highs-install
+        run: |
+          conda activate analog-ecc
+          python -m pytest -q tests/test_native_isolation.py -k openmp_build_requirement

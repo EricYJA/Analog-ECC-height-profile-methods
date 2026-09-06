@@ -5,11 +5,11 @@ The function name selects the mathematical formulation; `backend` selects its im
 | Backend | Implementation | Native installation |
 | --- | --- | --- |
 | `python` | Python enumeration, NumPy combinatorial operations, SciPy LP | None |
-| `cpp` | Existing C++/Eigen combinatorial methods | Eigen and GLPK |
+| `cpp` | Existing C++/Eigen combinatorial methods | Eigen and OpenMP |
 | `cpp-glpk` | Existing C++ enumeration and GLPK LP solves | Eigen and GLPK |
-| `cpp-highs` | Existing C++ enumeration and direct HiGHS LP solves | Eigen, GLPK, and HiGHS |
+| `cpp-highs` | Existing C++ enumeration and direct HiGHS LP solves | Eigen, HiGHS, and OpenMP |
 
-These backends belong to the same `analog-ecc-heights` distribution. The native options preserve the existing shared extension, including its cumulative GLPK dependency. Eigen is needed only to compile. HiGHS support is enabled explicitly at build time, and the system C++ library is required; the `highspy` Python package is not required.
+These backends belong to the same `analog-ecc-heights` distribution. The `_comb`, `_glpk`, and `_highs` extensions load independently and link only their respective dependencies. Eigen is needed only to compile. HiGHS support is enabled explicitly at build time, and the system C++ library is required; the `highspy` Python package is not required.
 
 `"cpp"` is only valid for combinatorial functions. `"cpp-glpk"` and `"cpp-highs"` are only valid for LP functions. See [installation](installation.md) for source-build flags.
 
@@ -34,8 +34,8 @@ Both implementations retain the matrix-specific restrictions and the native zero
 `num_threads=None` selects the backend default:
 
 - Python and GLPK use sequential enumeration and accept only `None` or `1`.
-- Native combinatorial and HiGHS use 16 workers when built with OpenMP and 1 otherwise.
-- Explicit counts greater than 1 for native methods require OpenMP; the public API rejects them if it is absent.
+- Native combinatorial and HiGHS require OpenMP and default to 16 workers.
+- Use `num_threads=1` for sequential native combinatorial or HiGHS execution.
 
 For repeatable serial comparisons, pass `num_threads=1` to every backend. The parameter governs this package's workers and does not promise control of NumPy/SciPy/BLAS internal threads. Native HiGHS work is buffered in batches bounded by the number of workers, rather than a complete task list.
 
@@ -51,4 +51,4 @@ The test suite checks known answers, generator/parity agreement, formulation agr
 
 ## Existing native callers
 
-`import solve_m_height_cpp` is retained by a compatibility module in the same distribution. It loads the packaged native extension and exposes its original symbols. It requires native support and retains the original binding behavior, including legacy threading semantics. New code can use `analog_ecc_heights` for common signatures, explicit backend selection, and strict thread validation.
+`import solve_m_height_cpp` is retained by a compatibility module in the same distribution. It loads the corresponding extension when a function is accessed and exposes the original symbols for installed backends. Importing the shim does not load solver libraries; requesting an unavailable legacy symbol raises `AttributeError`. The original binding signatures and defaults are preserved. New code can use `analog_ecc_heights` for common signatures, explicit backend selection, and strict thread validation.

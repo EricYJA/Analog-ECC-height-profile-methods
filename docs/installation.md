@@ -1,6 +1,6 @@
 # Installation
 
-`analog-ecc-heights` is one distribution with one version and the import name `analog_ecc_heights`. It supports a default Python installation and two optional native build configurations. Select native support while installing; select an installed implementation with the API's `backend=` argument.
+`analog-ecc-heights` is one distribution with one version and the import name `analog_ecc_heights`. It supports a default Python installation and three independently optional native extensions. Select native support while installing; select an installed implementation with the API's `backend=` argument.
 
 ## Default Python installation
 
@@ -22,59 +22,65 @@ SciPy supplies its own LP implementation using HiGHS. A separate HiGHS installat
 
 ## Native requirements
 
-Every native build needs a C++17 compiler, CMake >=3.18, Python development headers, Eigen headers, and the GLPK development headers and library. Pip installs scikit-build-core and pybind11 as build dependencies. OpenMP is optional.
+Every native build needs a C++17 compiler, CMake >=3.18, Python development headers, and Eigen headers. Pip installs scikit-build-core and pybind11 as build dependencies.
 
-| Build configuration | Available backends | Required solver development libraries |
+| Extension | API backend | Additional requirements |
 | --- | --- | --- |
-| Default | `python` | None |
-| Native, `USE_HIGHS=OFF` | `python`, `cpp`, `cpp-glpk` | GLPK |
-| Native, `USE_HIGHS=ON` | `python`, `cpp`, `cpp-glpk`, `cpp-highs` | GLPK and HiGHS |
+| `_comb` | `cpp` | OpenMP |
+| `_glpk` | `cpp-glpk` | System GLPK development headers and library |
+| `_highs` | `cpp-highs` | System HiGHS development headers and library; OpenMP |
 
-The existing C++ sources form one extension, so native combinatorial and HiGHS builds also link GLPK. Eigen is header-only and is needed when compiling, not as a runtime installation. Shared solver libraries and the compiler/OpenMP runtime must remain discoverable when loading the built extension. Installing only a solver executable or a Python wrapper does not provide the development files required here.
+Each extension links only its own dependencies. Eigen is header-only and needed at build time. Solver libraries and compiler/OpenMP runtimes must remain available after installation. Installing only a solver executable or Python wrapper does not provide the development files required here.
 
-For example, on Debian/Ubuntu the GLPK/Eigen build prerequisites can be installed with:
+OpenMP is mandatory for combinatorial and HiGHS builds: configuration fails if it cannot be found. GLPK-only and Python-only installations do not require OpenMP. Passing `num_threads=1` still selects sequential execution in a parallel-capable extension.
+
+For example, on Debian/Ubuntu install the base native prerequisites with:
 
 ```bash
-sudo apt-get install libeigen3-dev libglpk-dev cmake ninja-build g++ python3-dev
+sudo apt-get install libeigen3-dev cmake ninja-build g++ python3-dev
+# Add this only when enabling GLPK:
+sudo apt-get install libglpk-dev
 ```
 
-For HiGHS, install its C++ development library, headers, and preferably its CMake package configuration; follow the [HiGHS installation guide](https://ergo-code.github.io/HiGHS/dev/installation/). The native CI configuration builds HiGHS 1.11.0 from source. `pip install highspy` alone is not the supported way to satisfy this dependency.
+For HiGHS, install its C++ development library, headers, and preferably its CMake package configuration; see the [HiGHS installation guide](https://ergo-code.github.io/HiGHS/dev/installation/). CI builds HiGHS 1.11.0 from source. The `highspy` Python package alone is not the supported dependency. Compilers such as Apple Clang may require a separately installed OpenMP runtime and explicit search paths.
 
 ## Build native support from this checkout
 
-Run from the repository root, after installing the system dependencies:
+Run from the repository root after installing the dependencies:
 
 ```bash
-# GLPK and C++ combinatorial support
-python -m pip install . -Cwheel.cmake=true -Ccmake.define.USE_HIGHS=OFF
+# Combinatorial only (the default native configuration)
+python -m pip install . -Cwheel.cmake=true
 
-# GLPK, HiGHS, and C++ combinatorial support
-python -m pip install . -Cwheel.cmake=true -Ccmake.define.USE_HIGHS=ON
+# GLPK only; no OpenMP requirement
+python -m pip install . -Cwheel.cmake=true \
+  -Ccmake.define.BUILD_CPP_COMB=OFF -Ccmake.define.USE_GLPK=ON
+
+# HiGHS only
+python -m pip install . -Cwheel.cmake=true \
+  -Ccmake.define.BUILD_CPP_COMB=OFF -Ccmake.define.USE_HIGHS=ON
+
+# All three native extensions
+python -m pip install . -Cwheel.cmake=true \
+  -Ccmake.define.USE_GLPK=ON -Ccmake.define.USE_HIGHS=ON
 ```
 
-CMake runs only when `wheel.cmake=true`. Enabling HiGHS requires it to be found; the build fails clearly if its development library is missing. The flags are passed through pip's `--config-settings` (`-C`) interface; see [scikit-build-core configuration](https://scikit-build-core.readthedocs.io/en/latest/configuration/index.html).
+All variants include the default Python implementation. Build options default to `BUILD_CPP_COMB=ON`, `USE_GLPK=OFF`, and `USE_HIGHS=OFF`. Combine them as needed. CMake runs only with `wheel.cmake=true`; every requested dependency must be found. Selecting no native extension with CMake enabled raises a configuration error.
 
-If an existing installation must be replaced without upgrading NumPy or SciPy, use:
-
-```bash
-python -m pip install . --force-reinstall --no-deps --no-cache-dir \
-  -Cwheel.cmake=true -Ccmake.define.USE_HIGHS=ON
-```
-
-`--no-deps` assumes the runtime dependencies are already installed. Change `USE_HIGHS` to `OFF` for the GLPK-only configuration. Reinstalling with `-Cwheel.cmake=false` returns to a Python-only installation.
+To replace an existing installation of the same version, add `--force-reinstall --no-deps --no-cache-dir` to the chosen command. `--no-deps` assumes NumPy and SciPy are already installed. Native features are selected for the entire installation: rebuilding replaces the previous selection rather than adding to it. Reinstalling with `-Cwheel.cmake=false` returns to Python-only support.
 
 ## Build native support from a published release
 
-The first release format is a Python wheel plus a complete source archive. To enable native support, force a source build of this package rather than selecting its default wheel. These commands apply after publication:
+After publication, force a source build of this package to enable native support. For example, to install all three extensions:
 
 ```bash
 python -m pip install "numpy>=1.23" "scipy>=1.9"
 python -m pip install analog-ecc-heights --force-reinstall --no-deps --no-cache-dir \
-  --no-binary=analog-ecc-heights \
-  -Cwheel.cmake=true -Ccmake.define.USE_HIGHS=ON
+  --no-binary=analog-ecc-heights -Cwheel.cmake=true \
+  -Ccmake.define.USE_GLPK=ON -Ccmake.define.USE_HIGHS=ON
 ```
 
-Again, use `USE_HIGHS=OFF` for GLPK-only support. `--force-reinstall` matters when the same version is already installed; `--no-cache-dir` avoids reusing a wheel built with different native options. Normal upgrades install the default wheel unless a source build is requested again.
+Use the same build options as above for other combinations. `--no-cache-dir` avoids reusing a wheel built with different options. Normal upgrades install the default wheel unless a source build is requested again.
 
 ## Nonstandard library locations
 
@@ -116,4 +122,4 @@ print(available_backends())
 print(h_m_roth_primal_lp([[1.0, -2.0, 4.0]], 1))  # 2.0, always Python by default
 ```
 
-`available_backends()` checks whether the native extension can be loaded. Calling `backend="cpp-highs"` cannot compile or install it on demand. An unavailable backend raises `ImportError`; installing native support never changes the default from `"python"`.
+`available_backends()` checks each native extension independently. Calling `backend="cpp-highs"` cannot compile or install it on demand. An unavailable backend raises `ImportError`; installing native support never changes the default from `"python"`.

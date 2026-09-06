@@ -46,14 +46,10 @@ def available_backends():
     from .cpp_backend.adapter import load_native
 
     result = ["python"]
-    try:
-        native = load_native()
-    except ImportError:
-        return result
-    if hasattr(native, "h_m_roth_primal_combinatorial"):
-        result.append("cpp")
-    if hasattr(native, "h_m_roth_primal_lp_glpk"):
-        result.append("cpp-glpk")
-    if hasattr(native, "h_m_roth_primal_lp_highs"):
-        result.append("cpp-highs")
+    for backend in ("cpp", "cpp-glpk", "cpp-highs"):
+        try:
+            load_native(backend)
+        except ImportError:
+            continue
+        result.append(backend)
     return result

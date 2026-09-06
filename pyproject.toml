@@ -55,6 +55,8 @@ sdist.include = [
 sdist.exclude = ["**/__pycache__/**", "**/*.pyc"]
 
 [tool.scikit-build.cmake.define]
+BUILD_CPP_COMB = "ON"
+USE_GLPK = "OFF"
 USE_HIGHS = "OFF"
 BUILD_TEST_MAIN = "OFF"
 SANITIZE = "OFF"
