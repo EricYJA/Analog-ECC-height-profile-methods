@@ -147,7 +147,7 @@ def test_mds_specializations_and_zero_redundancy(backend):
         assert_height(method(matrix, 2, backend=backend, num_threads=1), expected)
     for method, matrix in ((heights.h_m_roth_mds_combinatorial, np.eye(3)),
                            (heights.h_m_roth_mds_combinatorial_parity, np.empty((0, 3)))):
-        assert_height(method(matrix, 0, backend=backend, num_threads=1), 0.)
+        assert_height(method(matrix, 0, backend=backend, num_threads=1), 1.)
     bad_G, bad_H = systematic_pair(np.eye(2))
     for method, matrix in ((heights.h_m_roth_mds_combinatorial, bad_G),
                            (heights.h_m_roth_mds_combinatorial_parity, bad_H)):
@@ -215,3 +215,68 @@ def test_glpk_rejects_parallel_workers():
     G, _ = systematic_pair(np.array([[1.], [1.]]))
     with pytest.raises(ValueError, match="num_threads"):
         heights.h_m_roth_primal_lp(G, 1, backend="cpp-glpk", num_threads=2)
+
+
+@pytest.mark.parametrize("backend", LP_BACKENDS)
+def test_roth_zero_index_distinguishes_zero_and_nonzero_codes(backend):
+    require_backend(backend)
+    cases = (
+        (np.zeros((2, 3)), 0.),
+        (np.array([[1., 2., 3.], [2., 4., 6.]]), 1.),
+        # Even the smallest nonzero float generates a nonzero row space.
+        (np.array([[0., np.nextafter(0., 1.), 0.]]), 1.),
+    )
+    for G, expected in cases:
+        for method in LP_METHODS[2:]:
+            for threshold in (-float("inf"), -0.5, 0., 0.5, 2., float("inf")):
+                assert_height(method(G, 0, backend=backend, num_threads=1,
+                                     early_quit_threshold=threshold),
+                              min(expected, threshold))
+
+
+@pytest.mark.parametrize("threads", (1, 4))
+def test_highs_recovers_from_tiny_coefficient_warning(threads):
+    require_backend("cpp-highs")
+    # A well-conditioned MDS code with heights [2, 3], perturbed by 1e-12.
+    # HiGHS passModel warns when it drops the tiny coefficient. This must
+    # still solve, while the oversized-model tests continue to reject errors.
+    G = np.array([[1., 1e-12, 1., 1.], [0., 1., 1., 2.]])
+    for m, expected in ((1, 2.), (2, 3.), (3, float("inf"))):
+        for method in LP_METHODS:
+            assert_height(method(G, m, backend="cpp-highs", num_threads=threads), expected)
+        for method in CAPPED_METHODS:
+            assert_height(method(G, m, backend="cpp-highs", num_threads=threads,
+                                 early_quit_threshold=1.5), 1.5)
+
+
+@pytest.mark.parametrize("backend", ("python", "cpp", "cpp-glpk", "cpp-highs"))
+@pytest.mark.parametrize("n", (3, 5, 6))
+def test_spherical_parity_code_published_heights(backend, n):
+    # Roth et al. (2026), Example 1, Eqs. (25)-(27); h_2 also follows from
+    # Roth (2020), Proposition 11. These are independent closed-form answers.
+    from scipy.linalg import null_space
+
+    require_backend(backend)
+    alpha = np.pi / n
+    H = np.array([np.cos(alpha * np.arange(n)), np.sin(alpha * np.arange(n))])
+    G = null_space(H).T
+    h1 = 1 / np.sin(alpha / 2) - 1 if n % 2 else 1 / np.tan(alpha / 2) - 1
+    h2 = 1 / (2 * np.sin(alpha / 2) ** 2) - 1
+    if backend in LP_BACKENDS:
+        for threads in ((1, 4) if backend == "cpp-highs" else (1,)):
+            for m in range(1, min(n, 4)):
+                expected = (h1, h2)[m - 1] if m < 3 else float("inf")
+                for method in LP_METHODS:
+                    assert_height(method(G, m, backend=backend, num_threads=threads), expected)
+    if backend in COMB_BACKENDS:
+        for m in range(1, min(n, 4)):
+            expected = (h1, h2)[m - 1] if m < 3 else float("inf")
+            for method in GENERATOR_METHODS:
+                assert_height(method(G, m, backend=backend, num_threads=1), expected)
+            assert_height(heights.h_m_roth_dual_combinatorial_parity(
+                H, m, backend=backend, num_threads=1), expected)
+        np.testing.assert_allclose(heights.h_m_roth_primal_combinatorial(
+            G, backend=backend, num_threads=1), [h1, h2], rtol=1e-8, atol=1e-9)
+        for method, matrix in ((heights.h_m_roth_mds_combinatorial, G),
+                               (heights.h_m_roth_mds_combinatorial_parity, H)):
+            assert_height(method(matrix, 2, backend=backend, num_threads=1), h2)

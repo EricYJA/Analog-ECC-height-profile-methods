@@ -101,6 +101,14 @@ class PythonLpTests(unittest.TestCase):
         for fn in CAPPED_METHODS:
             self.assert_height(fn(np.zeros((2, 3)), 1), 0.0)
 
+    def test_zero_code_heights_and_caps(self):
+        for fn in (h_m_roth_primal_lp, h_m_roth_dual_lp):
+            for m in (0, 1, 2):
+                for threshold in (-math.inf, -0.5, 0., 0.5, math.inf):
+                    with self.subTest(fn=fn.__name__, m=m, threshold=threshold):
+                        self.assert_height(fn(np.zeros((2, 3)), m, threshold),
+                                           min(0., threshold))
+
     def test_primal_dual_agreement_for_random_small_codes(self):
         rng = np.random.default_rng(2026)
         for _ in range(3):

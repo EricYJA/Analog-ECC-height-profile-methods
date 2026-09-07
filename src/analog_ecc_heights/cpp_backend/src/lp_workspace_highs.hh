@@ -55,14 +55,19 @@ public:
     }
 
     Result solve() {
-        if (highs_.clearModel() != HighsStatus::kOk ||
-            highs_.clearSolver() != HighsStatus::kOk ||
-            highs_.passModel(lp) != HighsStatus::kOk ||
-            highs_.run() != HighsStatus::kOk)
-            throw std::runtime_error("HiGHS model solve failed.");
+        check_status(highs_.clearModel(), "clearModel");
+        check_status(highs_.clearSolver(), "clearSolver");
+        // Model input can warn when roundoff-sized coefficients are dropped.
+        // Continue after warnings, but only return a definitive model status.
+        check_status(highs_.passModel(lp), "passModel");
+        check_status(highs_.run(), "run");
         const auto status = highs_.getModelStatus();
-        if (status == HighsModelStatus::kOptimal)
-            return {Status::Optimal, highs_.getInfo().objective_function_value};
+        if (status == HighsModelStatus::kOptimal) {
+            const double value = highs_.getInfo().objective_function_value;
+            if (!std::isfinite(value))
+                throw std::runtime_error("HiGHS returned a nonfinite optimal objective.");
+            return {Status::Optimal, value};
+        }
         if (status == HighsModelStatus::kInfeasible) return {Status::Infeasible, 0.0};
         if (status == HighsModelStatus::kUnbounded) return {Status::Unbounded, 0.0};
         throw std::runtime_error("Unexpected HiGHS model status: " + highs_.modelStatusToString(status));
@@ -70,6 +75,10 @@ public:
 
     HighsLp lp;
 private:
+    static void check_status(HighsStatus status, const char* operation) {
+        if (status != HighsStatus::kOk && status != HighsStatus::kWarning)
+            throw std::runtime_error(std::string("HiGHS ") + operation + " failed.");
+    }
     template<typename T> void option(const char* name, T value) {
         if (highs_.setOptionValue(name, value) != HighsStatus::kOk)
             throw std::runtime_error(std::string("HiGHS rejected option: ") + name);

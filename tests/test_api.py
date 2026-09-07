@@ -78,8 +78,8 @@ def test_profiles_and_zero_redundancy():
     assert profile == pytest.approx([2.])
     assert h.h_m_roth_primal_combinatorial(np.eye(2)) == []
     assert h.h_m_roth_primal_combinatorial(np.eye(2), 0) == 1.
-    assert h.h_m_roth_mds_combinatorial(np.eye(2), 0) == 0.
-    assert h.h_m_roth_mds_combinatorial_parity(np.empty((0, 2)), 0) == 0.
+    assert h.h_m_roth_mds_combinatorial(np.eye(2), 0) == 1.
+    assert h.h_m_roth_mds_combinatorial_parity(np.empty((0, 2)), 0) == 1.
 
 def test_missing_native_does_not_fall_back():
     from analog_ecc_heights.cpp_backend import adapter

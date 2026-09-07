@@ -47,7 +47,7 @@ def h_m_roth_dual_combinatorial_parity(H, m, *, backend="python", tol=1e-10, num
 def h_m_roth_mds_combinatorial(G, m, *, backend="python", tol=1e-10, num_threads=None):
     """Compute the MDS specialization with m = n-k; reject non-MDS codes.
 
-    For zero redundancy, preserves the native specialization's return of 0.0.
+    For zero redundancy, returns h_0 = 1.0 for the full-space code.
     """
     return _solve("h_m_roth_mds_combinatorial", G, m, backend, tol, num_threads)
 
@@ -55,6 +55,6 @@ def h_m_roth_mds_combinatorial(G, m, *, backend="python", tol=1e-10, num_threads
 def h_m_roth_mds_combinatorial_parity(H, m, *, backend="python", tol=1e-10, num_threads=None):
     """Compute the MDS specialization with m = H.shape[0]; reject non-MDS codes.
 
-    For zero redundancy, preserves the native specialization's return of 0.0.
+    For zero redundancy, returns h_0 = 1.0 for the full-space code.
     """
     return _solve("h_m_roth_mds_combinatorial_parity", H, m, backend, tol, num_threads)

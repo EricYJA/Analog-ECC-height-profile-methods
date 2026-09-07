@@ -10,7 +10,9 @@ from ._lp_solver import solve_lp
 
 def _roth_lp(G, m, early_quit_threshold, *, primal):
     if m == 0:
-        return float(min(1.0, early_quit_threshold))
+        # Roth 2020 defines all heights of the zero code as zero.
+        height = 1.0 if np.any(G != 0.0) else 0.0
+        return float(min(height, early_quit_threshold))
     k, n = G.shape
     q = n - m
     A = np.empty((2 * q, k) if primal else (k, 2 * q))

@@ -159,8 +159,8 @@ class CombinatorialTests(unittest.TestCase):
                     getattr(backend, name)(matrix, 1, num_threads=threads)
             for name, matrix in ((self.mds_g_name, np.eye(3)),
                                  (self.mds_h_name, np.empty((0, 3)))):
-                # Preserve the native MDS specialization at zero redundancy.
-                self.assertEqual(getattr(backend, name)(matrix, 0, num_threads=threads), 0.)
+                # The full-space code has h_0 = 1 in every formulation.
+                self.assertEqual(getattr(backend, name)(matrix, 0, num_threads=threads), 1.)
         with self.assertRaises(ValueError):
             getattr(backend, self.mds_h_name)(np.ones((2, 4)), 2)
         with self.assertRaises(ValueError):

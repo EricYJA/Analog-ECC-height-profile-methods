@@ -21,10 +21,9 @@ def _mds_height(matrix, m, tol, parity):
     redundancy = matrix.shape[0] if parity else n - matrix.shape[0]
     if m != redundancy:
         raise ValueError("MDS form requires m equal to the code redundancy.")
-    # Preserve the historical native MDS convention. General methods return
-    # h_0 = 1; the specialized MDS routine returns 0 for zero redundancy.
+    # Zero redundancy describes the full space, whose h_0 is one.
     if redundancy == 0:
-        return 0.0
+        return 1.0
     distance_exceeds = (parity_check_minimum_distance_exceeds_validated if parity
                         else generator_minimum_distance_exceeds_validated)
     if not distance_exceeds(matrix, redundancy, tol):

@@ -21,7 +21,8 @@ double roth_lp(const Eigen::MatrixXd& G, int m, double threshold,
         throw std::invalid_argument("m must satisfy 0 <= m <= n-1.");
     if (std::isnan(threshold))
         throw std::invalid_argument("early_quit_threshold must not be NaN.");
-    if (m == 0) return std::min(1.0, threshold);
+    // Use exact zero detection: any nonzero row space has h_0 = 1.
+    if (m == 0) return std::min((G.array() == 0.0).all() ? 0.0 : 1.0, threshold);
 
     const int q = n - m;
     m_height_lp::Workspace lp(primal ? 2 * q : k, primal ? k : 2 * q, backend, primal);

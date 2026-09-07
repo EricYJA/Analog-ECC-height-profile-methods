@@ -47,8 +47,9 @@ class LpBackendTests(unittest.TestCase):
                     fn(G, threads)
             # Oversized finite coefficients cause model rejection inside the
             # workers; errors must propagate without crossing the OMP boundary.
-            with self.assertRaises(RuntimeError):
-                fn(G * 1e30, 4)
+            for threads in (1, 4):
+                with self.subTest(threads=threads), self.assertRaises(RuntimeError):
+                    fn(G * 1e30, threads)
 
     def backends(self):
         return [name for name in ("glpk", "highs") if hasattr(s, f"h_m_roth_primal_lp_{name}")]
@@ -90,6 +91,14 @@ class LpBackendTests(unittest.TestCase):
                 for threshold in (0.5, 2., math.inf):
                     with self.subTest(fn=fn.__name__, m=m, threshold=threshold):
                         self.assert_value(fn(G, m, threshold), min(expected, threshold))
+
+    def test_zero_code_heights_and_caps(self):
+        for fn in self.roth_methods():
+            for m in (0, 1, 2):
+                for threshold in (-math.inf, -0.5, 0., 0.5, math.inf):
+                    with self.subTest(fn=fn.__name__, m=m, threshold=threshold):
+                        self.assert_value(fn(np.zeros((2, 3)), m, threshold),
+                                          min(0., threshold))
 
     def test_original_workspace_reuse(self):
         # Repeated changes of objective, sign constraints and normalization row

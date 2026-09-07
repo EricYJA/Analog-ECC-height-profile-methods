@@ -154,8 +154,8 @@ def test_validation_and_zero_redundancy():
     assert dual_parity(np.empty((0, 3)), 0) == 1.
     assert dual_parity(np.empty((0, 3)), 1) == float("inf")
     # Compatibility with the existing specialized C++ implementation.
-    assert mds_generator(np.eye(3), 0) == 0.
-    assert mds_parity(np.empty((0, 3)), 0) == 0.
+    assert mds_generator(np.eye(3), 0) == 1.
+    assert mds_parity(np.empty((0, 3)), 0) == 1.
     for matrix in (np.ones((2, 3)), np.empty((0, 2)), np.eye(3)[:, :2],
                    np.array([[1., np.nan]]), np.array([[1., np.inf]]),
                    np.array([[1., 1j]]), np.array([1., 2.])):

@@ -12,7 +12,7 @@ Requires Python 3.10 or later. Install the published package from [PyPI](https:/
 python -m pip install analog-ecc-heights
 ```
 
-Pip installs NumPy >=1.23 and SciPy >=1.9 automatically. Version [0.1.1](https://pypi.org/project/analog-ecc-heights/0.1.1/) is available as a Python wheel and source archive.
+Pip installs NumPy >=1.23 and SciPy >=1.9 automatically. Version [0.1.2](https://pypi.org/project/analog-ecc-heights/0.1.2/) is available as a Python wheel and source archive.
 
 Use an existing Python environment or follow the [environment setup guide](https://github.com/EricYJA/Analog-ECC-height-profile-methods/blob/main/docs/installation.md#choose-a-python-environment) to create a virtual environment or use Conda. If your Python command is `python3` or `py`, use it in place of `python`.
 
@@ -67,8 +67,10 @@ Licensed under the [MIT License](https://github.com/EricYJA/Analog-ECC-height-pr
 
 ## References
 
-All implementations are based on the methods and theorems developed in these papers:
+The height definitions and published formulations come from these papers; the [method-to-formula mapping](docs/api.md#relationship-to-the-papers) also identifies derived variants:
 
 1. Ron M. Roth, “[Analog Error-Correcting Codes](https://doi.org/10.1109/TIT.2020.2977918),” *IEEE Transactions on Information Theory*, 66(7), 4075–4088, 2020.
 2. Anxiao Jiang, “[Analog Error-Correcting Codes: Designs and Analysis](https://doi.org/10.1109/TIT.2024.3454059),” *IEEE Transactions on Information Theory*, 70(11), 7740–7756, 2024.
 3. Ron M. Roth, Ziyuan Zhu, Changcheng Yuan, Paul H. Siegel, and Anxiao Jiang, “[On the Height Profile of Analog Error-Correcting Codes](https://arxiv.org/abs/2602.20366),” *2026 IEEE International Symposium on Information Theory (ISIT)*, also available as arXiv:2602.20366.
+
+Roth's 2020 paper has a [2023 correction](https://ronny.cswp.cs.technion.ac.il/wp-content/uploads/sites/54/2022/11/analog-correction.pdf) concerning decoder requirements and proofs. It does not change the height computations implemented here.

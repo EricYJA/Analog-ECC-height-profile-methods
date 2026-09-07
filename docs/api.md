@@ -28,8 +28,10 @@ All four accept `backend="python"`, `"cpp-glpk"`, or `"cpp-highs"` and return a 
 | --- | --- | --- |
 | `h_m_jiang_original_lp` | `1 <= m < n` | No zero column in `G`; no threshold option |
 | `h_m_jiang_simplified_lp` | `1 <= m < n` | Supports threshold capping |
-| `h_m_roth_primal_lp` | `0 <= m < n` | At `m=0`, returns `min(1, threshold)` |
-| `h_m_roth_dual_lp` | `0 <= m < n` | At `m=0`, returns `min(1, threshold)` |
+| `h_m_roth_primal_lp` | `0 <= m < n` | At `m=0`, returns `min(h_0, threshold)` |
+| `h_m_roth_dual_lp` | `0 <= m < n` | At `m=0`, returns `min(h_0, threshold)` |
+
+For the Roth LP methods, `h_0=0` when `G` is exactly all zero, and `h_0=1` otherwise, including nonzero matrices without full row rank. This follows the zero-vector convention in Roth (2020); the threshold cap still applies.
 
 LP matrices must have at least one row and one column. Unlike the combinatorial APIs, LP calls do not require full row rank. Jiang's methods accept every integer index `1 <= m < n`; there is no fixed cap of 30. Original Jiang enumerates `2**m` sign patterns per ordering, so large indices can still require substantial computation.
 
@@ -107,7 +109,7 @@ print(h_m_roth_primal_combinatorial(G, 2))  # inf
 
 ### MDS specializations
 
-`h_m_roth_mds_combinatorial` requires `m=n-k`; its parity counterpart requires `m=r`. Both check the MDS condition under `tol` and reject non-MDS input. **At zero redundancy, these two specializations return `0.0`**. This is distinct from the general methods' `m=0` convention of `1.0`.
+`h_m_roth_mds_combinatorial` requires `m=n-k`; its parity counterpart requires `m=r`. Both check the MDS condition under `tol` and reject non-MDS input. At zero redundancy, both return `1.0`: the code is the full space and has `h_0=1`, consistent with the general methods.
 
 ## Backend availability and threads
 
@@ -146,6 +148,8 @@ Large problems can require exponentially many cases. Compare performance using m
 
 `tol` applies only to combinatorial methods. Rank decisions use complete-pivot LU with cutoff `tol * reference_scale`, where the reference scale is the largest absolute entry of the input matrix. Submatrices use their parent matrix's scale. Changing `tol` can change rank and MDS classifications, and whether a reported height is finite.
 
+The C++ HiGHS wrapper accepts recoverable API warnings, such as dropping coefficients below the solver's matrix tolerance, then checks the final model status. Errors, incomplete solves, ambiguous statuses, and nonfinite optimal objectives raise `RuntimeError`.
+
 LP feasibility and optimality tolerances are determined by the selected solver; LP functions do not accept `tol`. Nearly singular matrices, extreme coefficient scales, and different solver versions can produce different results or classifications across methods and backends. Compare finite results with a suitable numerical tolerance and handle positive infinity separately.
 
 ## Errors and compatibility
@@ -153,3 +157,25 @@ LP feasibility and optimality tolerances are determined by the selected solver; 
 Wrong option types raise `TypeError`; invalid matrix values, index ranges, backend combinations, rank conditions, and unsupported thread requests raise `ValueError`. Missing native support raises `ImportError` with installation guidance. LP solver failures raise `RuntimeError`. `m` and `num_threads` must be integer values; booleans are rejected.
 
 `solve_m_height_cpp` remains available for existing code after installing the corresponding native backends. Its original function names, positional options, and native defaults are supported. Import from `analog_ecc_heights` to use the backend selection and option validation described in this guide.
+
+## Relationship to the papers
+
+Roth (2020) supplies the height definition, including the zero-vector convention. For nontrivial codes, the finite positive-index heights have `1 <= m < d`; `h_d` is infinite. The `m=None` API returns this finite prefix. The paper's complete height profile also includes `h_0` and the infinite entries.
+
+The Roth methods map to [Roth et al. (2026), arXiv v1](https://arxiv.org/html/2602.20366v1) as follows. This mapping applies to both Python and C++.
+
+| Function | Formula |
+| --- | --- |
+| `h_m_roth_primal_lp` | Equation (4) |
+| `h_m_roth_dual_lp` | Equations (5)–(7) |
+| `h_m_roth_primal_combinatorial` | Theorem 5, equation (15) |
+| `h_m_roth_primal_combinatorial_pruning` | Equation (15), with sign symmetry and an upper bound for pruning |
+| `h_m_roth_dual_combinatorial_generator` | Theorem 8, equation (20) |
+| `h_m_roth_dual_combinatorial_parity` | Theorem 8, equation (21) |
+| `h_m_roth_mds_combinatorial` and its parity counterpart | Corollary 11 |
+
+The original Jiang method implements the sign/order LP enumeration. Its constraints also appear in Theorem 2 of the author's [NVMW 2024 extended abstract](https://nvmw.ucsd.edu/nvmw2024-program/nvmw2024-paper23-final_version_your_extended_abstract.pdf).
+
+`h_m_jiang_simplified_lp` is a derived variant: each LP adds ordering inequalities to a Roth primal feasible region. Conversely, an extremal codeword can be sign-reversed and assigned a distinguished coordinate of largest magnitude that satisfies those inequalities, so the overall maximum is unchanged. The function name is retained for compatibility; these exact simplified constraints have not been verified against the final Jiang journal text.
+
+See the [references](../README.md#references), including the correction to Roth (2020), for the source papers.

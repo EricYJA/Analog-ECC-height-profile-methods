@@ -18,7 +18,8 @@ double mds_height(const Eigen::MatrixXd& M, int m, double tol,
     const int n = static_cast<int>(M.cols());
     const int r = parity ? static_cast<int>(M.rows()) : n - static_cast<int>(M.rows());
     if (m != r) throw std::invalid_argument("MDS form requires m equal to the code redundancy.");
-    if (r == 0) return 0.0;
+    // Zero redundancy describes the full space, whose h_0 is one.
+    if (r == 0) return 1.0;
 
     const bool is_mds = parity
         ? comb::parity_check_minimum_distance_exceeds_validated(M, r, tol)

@@ -1,4 +1,8 @@
-"""Jiang's original and simplified enumerations using SciPy linear programs."""
+"""Jiang's original LP and a simplified variant using SciPy linear programs.
+
+The simplified variant adds ordering inequalities to Roth's primal LP;
+see docs/api.md for its relationship to the published formulations.
+"""
 
 from itertools import combinations
 from math import inf

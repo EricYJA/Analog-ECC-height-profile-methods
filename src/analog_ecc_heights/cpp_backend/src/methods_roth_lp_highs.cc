@@ -12,7 +12,8 @@ namespace {
 double roth_highs(const LpInput& G, int m, double threshold, int num_threads, bool primal) {
     using namespace m_height_lp;
     validate_highs_input(G, m, num_threads, threshold);
-    if (m == 0) return std::min(1.0, threshold);
+    // Use exact zero detection: any nonzero row space has h_0 = 1.
+    if (m == 0) return std::min((G.array() == 0.0).all() ? 0.0 : 1.0, threshold);
     const int k = G.rows(), n = G.cols(), q = n - m;
     struct Job { std::vector<int> S, complement; };
     Combinations combinations(n, m);

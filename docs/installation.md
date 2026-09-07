@@ -42,7 +42,7 @@ python -m pip install analog-ecc-heights
 To install this release explicitly:
 
 ```bash
-python -m pip install analog-ecc-heights==0.1.1
+python -m pip install analog-ecc-heights==0.1.2
 ```
 
 To upgrade an existing installation to the latest release:
@@ -51,7 +51,7 @@ To upgrade an existing installation to the latest release:
 python -m pip install --upgrade analog-ecc-heights
 ```
 
-The [0.1.1 release](https://pypi.org/project/analog-ecc-heights/0.1.1/#files) includes a Python wheel and source archive. Its wheel provides the Python backend; optional native backends require a source build.
+The [0.1.2 release](https://pypi.org/project/analog-ecc-heights/0.1.2/#files) includes a Python wheel and source archive. Its wheel provides the Python backend; optional native backends require a source build.
 
 Pip installs NumPy >=1.23 and SciPy >=1.9 as runtime dependencies. This installs the Python backend without requiring a C++ compiler, CMake, Eigen, or system solver libraries.
 
@@ -116,7 +116,7 @@ For combinatorial support, build the published source archive with:
 
 ```bash
 python -m pip install --force-reinstall --no-cache-dir \
-  --no-binary=analog-ecc-heights analog-ecc-heights==0.1.1 \
+  --no-binary=analog-ecc-heights analog-ecc-heights==0.1.2 \
   -Cwheel.cmake=true
 ```
 
@@ -151,7 +151,7 @@ To replace an existing installation of the same version, add `--force-reinstall 
 
 ```bash
 python -m pip install --force-reinstall --no-deps --no-cache-dir \
-  --only-binary=analog-ecc-heights analog-ecc-heights==0.1.1
+  --only-binary=analog-ecc-heights analog-ecc-heights==0.1.2
 ```
 
 ## Nonstandard library locations

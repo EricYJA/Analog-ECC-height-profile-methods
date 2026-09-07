@@ -39,7 +39,7 @@ def test_wheel_contains_package_and_legacy_shim(built_wheel):
         metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
         metadata = archive.read(metadata_name).decode()
         assert "Name: analog-ecc-heights\n" in metadata
-        assert "Version: 0.1.1\n" in metadata
+        assert "Version: 0.1.2\n" in metadata
         assert "Requires-Python: >=3.10" in metadata
         native = any(
             name.startswith(tuple(f"analog_ecc_heights/cpp_backend/_{part}." for part in ("comb", "glpk", "highs")))
