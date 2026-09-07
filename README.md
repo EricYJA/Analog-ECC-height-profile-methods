@@ -36,6 +36,8 @@ print(h_m_roth_primal_combinatorial(G))                # [2.0]
 print(available_backends())                           # ["python"] in a default install
 ```
 
+With `m=None`, the primal combinatorial method returns the finite profile `[h_1, ..., h_(d-1)]`, where `d` is the minimum distance under `tol`. Its length is `d-1`; codes with `d=1` return `[]`.
+
 For a native-enabled installation, select the implementation explicitly:
 
 ```python

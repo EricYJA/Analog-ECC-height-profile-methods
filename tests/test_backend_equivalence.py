@@ -92,7 +92,7 @@ def test_public_combinatorial_and_profile_agreement(backend, code_pair):
             assert_height(method(G, m, backend=backend, num_threads=1), expected)
         assert_height(heights.h_m_roth_dual_combinatorial_parity(
             H, m, backend=backend, num_threads=1), expected)
-        if 1 <= m <= H.shape[0]:
+        if m >= 1 and np.isfinite(expected):
             profile_reference.append(expected)
     profile = heights.h_m_roth_primal_combinatorial(G, backend=backend, num_threads=1)
     assert isinstance(profile, list)
@@ -163,7 +163,8 @@ def test_near_rank_parent_scale_is_preserved(backend):
         for method in GENERATOR_METHODS:
             assert_height(method(G, 1, backend=backend, tol=tol, num_threads=1), expected)
         np.testing.assert_allclose(heights.h_m_roth_primal_combinatorial(
-            G, backend=backend, tol=tol, num_threads=1), [expected])
+            G, backend=backend, tol=tol, num_threads=1),
+            [expected] if np.isfinite(expected) else [])
 
 
 @pytest.mark.parametrize("backend", ("python", "cpp", "cpp-glpk", "cpp-highs"))

@@ -1,5 +1,6 @@
 #include "methods.hh"
 #include "lp_workspace_highs.hh"
+#include "sign_patterns.hh"
 
 
 #include <Eigen/Dense>
@@ -24,13 +25,12 @@ namespace {
 using namespace m_height_lp;
 struct JiangHighsJob {
     int a, b = -1;
-    std::vector<int> X, Y;
-    unsigned long long mask = 0;
+    std::vector<int> X, Y, signs;
 };
 
 double simplified_highs(const LpInput& G, int m, double threshold, int num_threads) {
     validate_highs_input(G, m, num_threads, threshold);
-    if (m < 1 || m > 30) throw std::invalid_argument("Simplified Jiang requires 1 <= m <= 30.");
+    if (m < 1) throw std::invalid_argument("Simplified Jiang requires 1 <= m < n.");
     const int k = G.rows(), n = G.cols();
     int a = 0;
     Combinations combinations(n - 1, m - 1);
@@ -69,16 +69,16 @@ double simplified_highs(const LpInput& G, int m, double threshold, int num_threa
 
 double original_highs(const LpInput& G, int m, int num_threads) {
     validate_highs_input(G, m, num_threads, std::numeric_limits<double>::infinity());
-    if (m < 1 || m > 30) throw std::invalid_argument("Original Jiang requires 1 <= m <= 30.");
+    if (m < 1) throw std::invalid_argument("Original Jiang requires 1 <= m < n.");
     const int k = G.rows(), n = G.cols();
     for (int j = 0; j < n; ++j)
         if (G.col(j).isZero(0.0)) throw std::invalid_argument("Original Jiang assumes no zero column.");
     int a = 0, b = 1;
-    unsigned long long mask = 0;
+    std::vector<int> signs(m, -1);
     Combinations combinations(n - 2, m - 1);
     auto next = [&](JiangHighsJob& job) {
         if (a == n) return false;
-        job.a = a; job.b = b; job.mask = mask;
+        job.a = a; job.b = b; job.signs = signs;
         job.X.clear(); job.Y.clear();
         int position = 0;
         for (int j = 0; j < n; ++j) {
@@ -87,8 +87,7 @@ double original_highs(const LpInput& G, int m, int num_threads) {
                 ? job.X : job.Y).push_back(j);
             ++position;
         }
-        if (++mask == (1ULL << m)) {
-            mask = 0;
+        if (!advance_sign_pattern(signs)) {
             if (!combinations.advance()) {
                 combinations = Combinations(n - 2, m - 1);
                 do { ++b; } while (b == a);
@@ -98,11 +97,11 @@ double original_highs(const LpInput& G, int m, int num_threads) {
         return true;
     };
     auto evaluate = [&](HighsWorkspace& w, const JiangHighsJob& job, const auto&) {
-        const double sa = (job.mask & 1ULL) ? 1.0 : -1.0;
+        const double sa = job.signs[0];
         for (int c = 0; c < k; ++c) w.lp.col_cost_[c] = sa * G(c, job.a);
         int row = 0;
         for (int t = 0; t < static_cast<int>(job.X.size()); ++t) {
-            const double sx = (job.mask & (1ULL << (t + 1))) ? 1.0 : -1.0;
+            const double sx = job.signs[t + 1];
             for (int c = 0; c < k; ++c) {
                 w.coefficient(row, c) = sx * G(c, job.X[t]) - sa * G(c, job.a);
                 w.coefficient(row + 1, c) = -sx * G(c, job.X[t]);

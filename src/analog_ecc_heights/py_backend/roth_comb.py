@@ -42,7 +42,7 @@ def _primal_transforms(G, tol):
 
 
 def h_m_roth_primal_combinatorial(G, m=None, tol=1e-10):
-    """Return one height, or the shared-computation profile h_1,...,h_(n-k)."""
+    """Return one height, or the finite profile h_1,...,h_(d-1) under tol."""
     G = validate_generator_matrix(G, tol)
     k, n = G.shape
     if m is not None:
@@ -57,14 +57,10 @@ def h_m_roth_primal_combinatorial(G, m=None, tol=1e-10):
                 best = max(best, _candidate_value(R @ signs, m, n))
         return best
 
-    max_m = n - k
-    if max_m == 0:
-        return []
-    finite_m_count = min(max_m, generator_minimum_distance_validated(G, tol) - 1)
-    result = [float("inf")] * max_m
+    finite_m_count = generator_minimum_distance_validated(G, tol) - 1
+    result = [-float("inf")] * finite_m_count
     if finite_m_count == 0:
         return result
-    result[:finite_m_count] = [-float("inf")] * finite_m_count
     # Each basis solve and sign-vector product is shared across the profile.
     for R in _primal_transforms(G, tol):
         for signs in sign_vectors(k):

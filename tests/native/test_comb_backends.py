@@ -66,11 +66,11 @@ class CombinatorialTests(unittest.TestCase):
                   np.array([[1., 1.], [1., 2.]]),
                   np.array([[1., 2., -1.], [2., -1., 3.]])):
             g, h = self.systematic_pair(p)
-            n, r = g.shape[1], h.shape[0]
+            n = g.shape[1]
             expected_profile = []
             for m in range(n):
                 expected = h_m_roth_primal_lp(g, m)
-                if 1 <= m <= r:
+                if m >= 1 and np.isfinite(expected):
                     expected_profile.append(expected)
                 methods = [(name, g) for name in self.generator_names]
                 methods.append((self.parity_name, h))

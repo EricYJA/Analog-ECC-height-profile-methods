@@ -26,12 +26,12 @@ All four accept `backend="python"`, `"cpp-glpk"`, or `"cpp-highs"` and return a 
 
 | Function | Index restriction | Additional behavior |
 | --- | --- | --- |
-| `h_m_jiang_original_lp` | `1 <= m <= min(30, n-1)` | No zero column in `G`; no threshold option |
-| `h_m_jiang_simplified_lp` | `1 <= m <= min(30, n-1)` | Supports threshold capping |
+| `h_m_jiang_original_lp` | `1 <= m < n` | No zero column in `G`; no threshold option |
+| `h_m_jiang_simplified_lp` | `1 <= m < n` | Supports threshold capping |
 | `h_m_roth_primal_lp` | `0 <= m < n` | At `m=0`, returns `min(1, threshold)` |
 | `h_m_roth_dual_lp` | `0 <= m < n` | At `m=0`, returns `min(1, threshold)` |
 
-LP matrices must have at least one row and one column. Unlike the combinatorial APIs, LP calls do not require full row rank. The 30-coordinate limit applies to the **height index `m` in Jiang's methods**, not the number of columns in `G`.
+LP matrices must have at least one row and one column. Unlike the combinatorial APIs, LP calls do not require full row rank. Jiang's methods accept every integer index `1 <= m < n`; there is no fixed cap of 30. Original Jiang enumerates `2**m` sign patterns per ordering, so large indices can still require substantial computation.
 
 ### Thresholds and solver outcomes
 
@@ -81,15 +81,17 @@ Generator matrices must have `1 <= k <= n` and full row rank under `tol`. Parity
 
 Scalar indices satisfy `0 <= m < n`. General combinatorial methods return `1.0` at `m=0`, a finite height when supported by the code's minimum distance, or positive infinity. Pruning computes the same scalar quantity as the primal method while eliminating candidates using bounds.
 
-### Full profiles
+### Finite profiles
 
 Only `h_m_roth_primal_combinatorial` accepts `m=None`, which is also its default. It returns a `list[float]`:
 
 ```text
-[h_1, h_2, ..., h_(n-k)]
+[h_1, h_2, ..., h_(d-1)]
 ```
 
-The list does not include `h_0`; its length is the redundancy `n-k`. A square full-rank generator has an empty profile. Full profiles share computation across indices. Integer `m` returns a scalar `float`.
+Here `d` is the minimum distance determined under `tol`. The list has length `d-1` and contains only the finite positive-index heights; `h_0` and the infinite heights starting at `h_d` are omitted. For an MDS code, `d-1 = n-k`. Any code with `d=1`, including a square full-rank generator, has an empty profile. Profiles share computation across indices. Integer `m` returns a scalar `float`, including positive infinity when `m >= d`.
+
+This changes the earlier `m=None` result of length `n-k`: non-MDS profiles no longer include trailing infinities.
 
 ```python
 from analog_ecc_heights import h_m_roth_primal_combinatorial
@@ -97,6 +99,10 @@ from analog_ecc_heights import h_m_roth_primal_combinatorial
 G = [[1.0, -2.0, 4.0]]
 print(h_m_roth_primal_combinatorial(G))     # [2.0, 4.0]
 print(h_m_roth_primal_combinatorial(G, 2))  # 4.0
+
+G = [[0.0, 1.0, 2.0]]  # d=2, redundancy=2
+print(h_m_roth_primal_combinatorial(G))     # [2.0]
+print(h_m_roth_primal_combinatorial(G, 2))  # inf
 ```
 
 ### MDS specializations

@@ -21,7 +21,7 @@ def h_m_jiang_original_lp(G, m, *, backend="python", num_threads=None):
     """Compute Jiang's original LP formulation.
 
     G must be real, finite and have no zero columns. Requires
-    1 <= m <= min(30, n-1). No early-quit threshold is supported.
+    1 <= m < n. No early-quit threshold is supported.
     Backends: python (default), cpp-glpk, cpp-highs.
     """
     return _solve("h_m_jiang_original_lp", G, m, backend, num_threads)
@@ -32,7 +32,7 @@ def h_m_jiang_simplified_lp(
 ):
     """Compute Jiang's simplified LP, returning min(height, threshold).
 
-    Requires 1 <= m <= min(30, n-1). An infinite threshold computes the
+    Requires 1 <= m < n. An infinite threshold computes the
     complete height. Backends: python (default), cpp-glpk, cpp-highs.
     """
     return _solve("h_m_jiang_simplified_lp", G, m, backend, num_threads,

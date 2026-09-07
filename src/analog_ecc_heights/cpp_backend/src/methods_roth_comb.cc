@@ -207,16 +207,12 @@ std::vector<double> h_m_roth_primal_combinatorial(
     m_height_utils::validate_num_threads(num_threads);
     m_height_utils::validate_generator_matrix(G, tol);
     const int k = static_cast<int>(G.rows()), n = static_cast<int>(G.cols());
-    const int max_m = n - k;
-    if (max_m == 0) return {};
-    const int finite_m_count = std::min(
-        max_m, comb::generator_minimum_distance_validated(G, tol) - 1);
-    std::vector<double> result(max_m, inf);
+    const int finite_m_count = comb::generator_minimum_distance_validated(G, tol) - 1;
+    std::vector<double> result(finite_m_count, -inf);
     if (finite_m_count == 0) return result;
 
     const auto all_I = comb::collect_subsets(n, k);
     const double scale = comb::matrix_scale(G);
-    std::fill_n(result.begin(), finite_m_count, -inf);
 #pragma omp parallel if(num_threads > 1) num_threads(num_threads)
     {
         std::vector<double> best_private(finite_m_count, -inf);

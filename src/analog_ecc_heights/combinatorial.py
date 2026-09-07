@@ -20,10 +20,11 @@ def _solve(method, matrix, m, backend, tol, num_threads):
 
 
 def h_m_roth_primal_combinatorial(G, m=None, *, backend="python", tol=1e-10, num_threads=None):
-    """Return scalar h_m, or [h_1, ..., h_(n-k)] when m is None.
+    """Return scalar h_m, or [h_1, ..., h_(d-1)] when m is None.
 
     G must have full row rank. Scalar indices satisfy 0 <= m < n.
-    The profile shares work across heights. Backends: python, cpp.
+    The finite profile uses minimum distance d under tol; d=1 returns [].
+    It shares work across heights. Backends: python, cpp.
     """
     return _solve("h_m_roth_primal_combinatorial", G, m, backend, tol, num_threads)
 

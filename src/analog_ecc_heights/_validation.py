@@ -30,7 +30,7 @@ def height_index(value, n, *, allow_none=False, jiang=False):
     if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral):
         raise TypeError("m must be an integer" + (" or None." if allow_none else "."))
     value = int(value)
-    lower, upper = (1, min(30, n - 1)) if jiang else (0, n - 1)
+    lower, upper = (1 if jiang else 0), n - 1
     if not lower <= value <= upper:
         raise ValueError(f"m must satisfy {lower} <= m <= {upper}.")
     return value

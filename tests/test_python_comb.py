@@ -66,7 +66,7 @@ def test_general_formulations_against_independent_lp(P):
             value = method(matrix, m)
             assert isinstance(value, float)
             np.testing.assert_allclose(value, expected, rtol=1e-8, atol=1e-9)
-        if 1 <= m <= P.shape[1]:
+        if m >= 1 and np.isfinite(expected):
             expected_profile.append(expected)
     assert isinstance(primal(G), list)
     np.testing.assert_allclose(primal(G), expected_profile, rtol=1e-8, atol=1e-9)
@@ -79,7 +79,8 @@ def test_rank_one_known_heights_and_distance():
         assert primal(G, m) == height
         assert pruning(G, m) == height
         assert dual_generator(G, m) == height
-    assert primal(np.array([[0., 1., 2.]])) == [2., float("inf")]
+    assert primal(np.array([[0., 1., 2.]])) == [2.]
+    assert primal(np.array([[0., 1., 2.]]), 2) == float("inf")
 
 
 def test_dual_minimum_is_per_target():
@@ -125,7 +126,7 @@ def test_parent_scale_controls_near_rank_distance():
     G = np.array([[1., 1e-12]])
     assert primal(G, 1, tol=1e-10) == float("inf")
     assert primal(G, 1, tol=1e-14) == pytest.approx(1e12)
-    assert primal(G, tol=1e-10) == [float("inf")]
+    assert primal(G, tol=1e-10) == []
     assert primal(G, tol=1e-14) == pytest.approx([1e12])
     tiny = np.array([[1e-12]])
     assert numerical_rank(tiny, 1e-10) == 1

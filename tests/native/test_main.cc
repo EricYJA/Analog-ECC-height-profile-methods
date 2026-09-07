@@ -9,8 +9,39 @@
 #include <tuple>
 #include <vector>
 #include "methods.hh"
+#include "sign_patterns.hh"
+
+static void check_sign_patterns() {
+    using m_height_lp::advance_sign_pattern;
+    for (int m = 1; m <= 8; ++m) {
+        std::vector<int> signs(m, -1);
+        for (int mask = 0; mask < (1 << m); ++mask) {
+            for (int j = 0; j < m; ++j) {
+                const int expected = (mask & (1 << j)) ? 1 : -1;
+                if (signs[j] != expected)
+                    throw std::runtime_error("Jiang sign order changed.");
+            }
+            if (advance_sign_pattern(signs) != (mask + 1 < (1 << m)))
+                throw std::runtime_error("Jiang sign enumeration ended at the wrong pattern.");
+        }
+        if (signs != std::vector<int>(m, -1))
+            throw std::runtime_error("Jiang signs must reset for the next ordering.");
+    }
+
+    // Exercise a carry past bit 63 without enumerating 2^64 patterns.
+    std::vector<int> wide(66, -1);
+    std::fill_n(wide.begin(), 64, 1);
+    std::vector<int> expected(66, -1);
+    expected[64] = 1;
+    if (!advance_sign_pattern(wide) || wide != expected)
+        throw std::runtime_error("Jiang signs must carry beyond a machine word.");
+    std::fill(wide.begin(), wide.end(), 1);
+    if (advance_sign_pattern(wide) || wide != std::vector<int>(66, -1))
+        throw std::runtime_error("Wide Jiang sign enumeration must terminate and reset.");
+}
 
 int main() {
+    check_sign_patterns();
 #ifdef HAVE_HIGHS
     // The Python bridge uses this strided map. Ref must keep the same storage
     // address rather than silently materializing a column-major input copy.
@@ -168,7 +199,9 @@ int main() {
             };
             const auto profile = h_m_roth_primal_combinatorial(
                 G_case, std::nullopt, 1e-10, threads);
-            if (profile.size() != static_cast<size_t>(r))
+            const auto finite_count = static_cast<size_t>(std::count_if(
+                expected.begin(), expected.end(), [](double value) { return std::isfinite(value); }));
+            if (profile.size() != finite_count)
                 throw std::runtime_error(std::string(case_name) + " has an incorrect profile length.");
 
             for (int index = 0; index <= static_cast<int>(expected.size()); ++index) {
@@ -181,7 +214,7 @@ int main() {
                     h_m_roth_dual_combinatorial_generator(G_case, index, 1e-10, threads), target);
                 check("h_m_roth_dual_combinatorial_parity", index,
                     h_m_roth_dual_combinatorial_parity(H_case, index, 1e-10, threads), target);
-                if (index > 0 && index <= r)
+                if (index > 0 && index <= static_cast<int>(profile.size()))
                     check("h_m_roth_primal_combinatorial [profile]", index, profile[index - 1], target);
             }
             if (is_mds) {
@@ -229,12 +262,9 @@ int main() {
         h_m_roth_primal_combinatorial(G_numerical_distance, 1, 1e-10, 1));
     const std::vector<double> numerical_distance_profile =
         h_m_roth_primal_combinatorial(G_numerical_distance, std::nullopt);
-    if (numerical_distance_profile.size() != 1) {
-        throw std::runtime_error("The numerical [3,2] profile must contain one entry.");
+    if (!numerical_distance_profile.empty()) {
+        throw std::runtime_error("A numerical distance-1 code must have an empty finite profile.");
     }
-    check_positive_infinity(
-        "h_m_roth_primal_combinatorial [profile](numerical d=1,m=1)",
-        numerical_distance_profile[0]);
 
     Eigen::MatrixXd H_roundoff_column(1, 3);
     H_roundoff_column << 1.0, 1e-14, 1.0;

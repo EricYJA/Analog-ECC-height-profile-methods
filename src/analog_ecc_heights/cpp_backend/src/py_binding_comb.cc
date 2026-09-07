@@ -110,7 +110,7 @@ PYBIND11_MODULE(_comb, m) {
           "Exact h_r(C) for an MDS code via the generator-matrix characterization using OpenMP when available.");
     m.def("h_m_roth_primal_combinatorial", &h_m_roth_primal_combinatorial_np,
           py::arg("G"), py::arg("m") = py::none(), py::arg("tol") = 1e-10, py::arg("num_threads") = 16,
-          "Return scalar h_m for integer m, or [h_1, ..., h_{n-k}] when m is None or omitted.");
+          "Return scalar h_m for integer m, or the finite profile [h_1, ..., h_{d-1}] under tol when m is None or omitted; d=1 returns [].");
     m.def("h_m_roth_primal_combinatorial_pruning", &h_m_roth_primal_combinatorial_pruning_np,
           py::arg("G"), py::arg("m"), py::arg("tol") = 1e-10, py::arg("num_threads") = 16,
           "Exact h_m(C) via primal combinatorial characterization with branch-and-bound pruning using OpenMP when available.");
